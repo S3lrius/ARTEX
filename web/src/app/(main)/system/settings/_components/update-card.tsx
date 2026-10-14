@@ -40,15 +40,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function UpdateCard() {
   const [info, setInfo] = React.useState<UpdateCheck | null>(null);
-  const [checking, setChecking] = React.useState(true);
+  const [checking, setChecking] = React.useState(false);
   const [progress, setProgress] = React.useState<UpdateProgress | null>(null);
   // Separate from progress: once staging finishes the process is gone and SSE drops, so switch to polling /api/health.
   const [restarting, setRestarting] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
-  // quiet also decides whether to bypass the backend cache. The automatic check
-  // on page load uses the cache (the header just checked). A manual Check for
-  // updates forces a fresh lookup, or a release that just went out waits on the cache.
+  // Opening this page does not contact GitHub. Check for updates is the only
+  // lookup, and it skips the cache so the result is current.
   const check = React.useCallback((quiet = false) => {
     setChecking(true);
     api
@@ -66,10 +65,6 @@ export function UpdateCard() {
       })
       .finally(() => setChecking(false));
   }, []);
-
-  React.useEffect(() => {
-    check(true);
-  }, [check]);
 
   // Poll /api/health until the version changes.
   //
@@ -195,7 +190,9 @@ export function UpdateCard() {
           <DownloadIcon className="size-4" />
           Version and updates
         </CardTitle>
-        <CardDescription>Check GitHub and install a new version. Updating restarts the app and interrupts running tasks.</CardDescription>
+        <CardDescription>
+          This app does not check for or download updates on its own. Click Check for updates to look at this fork&apos;s GitHub releases. Installing a version restarts the app and interrupts running tasks.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">

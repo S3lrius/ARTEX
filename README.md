@@ -8,7 +8,7 @@ This tree is [S3lrius/ARTEX](https://github.com/S3lrius/ARTEX). It is a fork of 
 
 - The interface, prompts, comments, and docs are English.
 - You build and run this source. Compose does not pull a published ARTEX image.
-- In-app updates check **this** repository's GitHub releases. They do not download the original project's binaries.
+- The app does not check for or download updates on its own. Nothing is fetched from GitHub until you open System settings and click **Check for updates**. To move to a newer build, pull this repository and rebuild.
 
 The original project is [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX). Its simulated demo is [artex-demo.mhtsec.com](https://artex-demo.mhtsec.com). That demo, and any image published for the original project, is not how this fork is installed.
 

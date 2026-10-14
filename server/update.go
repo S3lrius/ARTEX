@@ -231,7 +231,7 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		"rolled_back": boot.RolledBack,
 	}
 
-	// The top-bar hint uses the cache (the default). "Check for updates" passes force=1 to skip it.
+	// "Check for updates" passes force=1 to skip the cache. The app does not call this on its own.
 	force := r.URL.Query().Get("force") != ""
 	client := selfupdate.NewClient(s.m.GlobalProxy())
 	rel, err := relCache.get(r.Context(), client, force)
