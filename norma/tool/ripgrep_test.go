@@ -19,8 +19,6 @@ func TestGrepViaRipgrepIfAvailable(t *testing.T) {
 	if _, err := exec.LookPath("rg"); err != nil {
 		t.Skip("rg not installed — skipping the ripgrep-backed path")
 	}
-	// Use the existing rg; never auto-install during tests.
-	t.Setenv("NORMA_RIPGREP_NO_INSTALL", "1")
 	os.Unsetenv("NORMA_DISABLE_RIPGREP")
 
 	dir := t.TempDir()

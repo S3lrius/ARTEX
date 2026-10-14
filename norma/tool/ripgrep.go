@@ -6,34 +6,25 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 )
 
-// Ripgrep integration: the Grep tool prefers the ripgrep binary when available
-// (faster, .gitignore-aware, full ripgrep syntax) and falls back to the pure-Go
-// implementation otherwise. Resolution runs once:
-//
-//  1. an `rg` already on PATH is used as-is;
-//  2. otherwise a best-effort `npm install -g @vscode/ripgrep` runs (npm is
-//     assumed present) and the installed binary is located;
-//  3. on any failure — no npm, install error, binary not found — the pure-Go
-//     grep is used, so search always works.
+// Ripgrep integration: the Grep tool uses an `rg` binary already on PATH
+// (faster, .gitignore-aware, full ripgrep syntax) and otherwise the pure-Go
+// implementation. It does not download or install anything.
 //
 // Env controls:
-//   - NORMA_DISABLE_RIPGREP=1     force the pure-Go implementation (also used by tests)
-//   - NORMA_RIPGREP_NO_INSTALL=1  use an existing rg but never auto-install
+//   - NORMA_DISABLE_RIPGREP=1  force the pure-Go implementation (also used by tests)
 
 var (
 	rgOnce     sync.Once
 	rgResolved string
 )
 
-// RipgrepPath returns the resolved ripgrep binary path, or "" when the pure-Go
-// grep should be used. The heavy resolution (detect + optional npm install) runs
-// at most once per process.
+// RipgrepPath returns the ripgrep binary on PATH, or "" when the pure-Go
+// grep should be used. The lookup runs at most once per process.
 func RipgrepPath() string {
 	if os.Getenv("NORMA_DISABLE_RIPGREP") != "" {
 		return ""
@@ -42,48 +33,12 @@ func RipgrepPath() string {
 	return rgResolved
 }
 
-// EnsureRipgrep warms ripgrep resolution so the cost (including a possible npm
-// install) is paid at startup rather than on the first Grep call. Hosts may call
-// it once at boot. Returns the resolved path ("" = Go fallback).
+// EnsureRipgrep looks up ripgrep once at startup so the first Grep call does
+// not pay for the PATH search. Returns the resolved path ("" = Go fallback).
 func EnsureRipgrep() string { return RipgrepPath() }
 
 func resolveRipgrep() string {
 	if p, err := exec.LookPath("rg"); err == nil {
-		return p
-	}
-	if os.Getenv("NORMA_RIPGREP_NO_INSTALL") != "" {
-		return ""
-	}
-	return installRipgrepViaNpm()
-}
-
-func installRipgrepViaNpm() string {
-	if _, err := exec.LookPath("npm"); err != nil {
-		return "" // no npm → Go fallback
-	}
-	cmd := exec.Command("npm", "install", "-g", "@vscode/ripgrep")
-	if err := cmd.Run(); err != nil {
-		return ""
-	}
-	if p, err := exec.LookPath("rg"); err == nil {
-		return p
-	}
-	return npmGlobalRipgrep()
-}
-
-// npmGlobalRipgrep locates the rg binary vendored by @vscode/ripgrep in the npm
-// global root (it exposes no `rg` command, so we resolve the path directly).
-func npmGlobalRipgrep() string {
-	out, err := exec.Command("npm", "root", "-g").Output()
-	if err != nil {
-		return ""
-	}
-	name := "rg"
-	if runtime.GOOS == "windows" {
-		name = "rg.exe"
-	}
-	p := filepath.Join(strings.TrimSpace(string(out)), "@vscode", "ripgrep", "bin", name)
-	if st, err := os.Stat(p); err == nil && !st.IsDir() {
 		return p
 	}
 	return ""

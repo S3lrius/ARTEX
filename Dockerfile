@@ -46,12 +46,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
-# Preinstall Playwright MCP and CLI globally so runtime does not npx-download them.
-# @playwright/mcp: browser MCP is invoked as `npx @playwright/mcp` (already global; no -y/@latest).
-# @playwright/cli: provides playwright-cli; --help after install checks that it runs.
-# Then install playwright (browser management) and use --with-deps to prefetch Chromium and its system libraries,
-# so MCP/CLI work on first start inside the container without downloading a browser.
-RUN npm install -g @playwright/mcp@latest @playwright/cli@latest playwright@latest \
+# Preinstall pinned Playwright packages so runtime does not npx-download them.
+# Versions checked 2026-10-14 against the public compromised-package list; none of these are on it.
+# --ignore-scripts skips package lifecycle hooks. Chromium is installed by the next command.
+RUN npm install -g --ignore-scripts @playwright/mcp@0.0.83 @playwright/cli@0.1.22 playwright@1.64.1 \
     && playwright-cli --help \
     && playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
