@@ -238,3 +238,5 @@ fi
 
 unset ARTEX_RESET_NEWPASS
 echo "✓ ARTEX administrator password reset. Log in as ARTEX with the new password (no service restart needed)."
+echo "  Sessions signed in before the reset stay valid until they expire (12 hours). To end them now," >&2
+echo "  delete jwt.key next to the artex binary (/app/jwt.key in Docker) and restart artex." >&2

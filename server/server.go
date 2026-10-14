@@ -44,7 +44,12 @@ type Server struct {
 	ctx    context.Context
 
 	skillDir string // root directory for skill subdirectories
-	jwtKey   []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
+	jwtKey   []byte // HS256 signing key loaded from / generated into keyDir/jwt.key; read via signingKey()
+	// jwtMu guards jwtKey, which rotateJWTKey replaces on a password change.
+	jwtMu      sync.RWMutex
+	jwtKeyPath string // where rotateJWTKey persists a new key; empty in tests
+	// setupToken must accompany POST /api/auth/init. Empty means setup is closed.
+	setupToken string
 
 	// concMu serializes concurrency-cap decisions (admission + reconcile) so a
 	// scheduler tick and an HTTP settings change / task creation can't both count
@@ -145,7 +150,25 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	if err != nil {
 		log.Fatalf("[auth] JWT key: %v", err)
 	}
-	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, jwtKey: key, chatBusy: map[string]bool{},
+	setupToken, fromEnv, err := resolveSetupToken()
+	if err != nil {
+		log.Fatalf("[auth] %v", err)
+	}
+	// Print a generated token unless the password is known to be set already. A read
+	// failure prints it too, so a slow database at boot cannot lock setup out.
+	if !fromEnv {
+		initialized := false
+		if m.pg != nil {
+			if hash, _, err := m.pg.GetSetting(authPassKey); err == nil && hash != "" {
+				initialized = true
+			}
+		}
+		if !initialized {
+			log.Printf("[auth] first-run setup token: %s (enter it on /setup; set ARTEX_SETUP_TOKEN to choose your own)", setupToken)
+		}
+	}
+	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, jwtKey: key,
+		jwtKeyPath: filepath.Join(keyDir, jwtKeyFilename), setupToken: setupToken, chatBusy: map[string]bool{},
 		chatCancel: map[string]context.CancelCauseFunc{}, triggerQ: map[string][]triggeredRun{},
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{},
 		profChatAgents: map[int64]*agent.ChatAgent{},

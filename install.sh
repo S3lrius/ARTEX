@@ -40,6 +40,7 @@ install_docker(){
   info "starting…"
   docker compose up -d
   ok "started → http://localhost:8787"
+  info "setup token for /setup: docker compose logs artex | grep 'setup token'"
   info "logs: docker compose logs -f artex"
 }
 

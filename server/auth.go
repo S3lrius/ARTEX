@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"fmt"
 	"log"
 	"math/big"
@@ -19,7 +20,7 @@ import (
 const (
 	jwtKeyFilename = "jwt.key"
 	authPassKey    = "auth.password_hash"
-	jwtTTL         = 7 * 24 * time.Hour
+	jwtTTL         = 12 * time.Hour
 	keyChars       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 	// The minimum matches the setup page's client check. A check that lives only in
@@ -70,13 +71,9 @@ func loadOrCreateJWTKey(keyDir, dataDir string) ([]byte, error) {
 	if data, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(data))) >= 32 {
 		return []byte(strings.TrimSpace(string(data))), nil
 	}
-	buf := make([]byte, 32)
-	for i := range buf {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(keyChars))))
-		if err != nil {
-			return nil, fmt.Errorf("generate jwt key: %w", err)
-		}
-		buf[i] = keyChars[n.Int64()]
+	buf, err := randomKey(32)
+	if err != nil {
+		return nil, fmt.Errorf("generate jwt key: %w", err)
 	}
 	if err := os.WriteFile(path, buf, 0600); err != nil {
 		return nil, fmt.Errorf("write jwt key: %w", err)
@@ -85,7 +82,66 @@ func loadOrCreateJWTKey(keyDir, dataDir string) ([]byte, error) {
 	return buf, nil
 }
 
-// signJWT issues a 7-day HS256 token for user ARTEX.
+// randomKey returns n random characters from keyChars.
+func randomKey(n int) ([]byte, error) {
+	buf := make([]byte, n)
+	for i := range buf {
+		c, err := rand.Int(rand.Reader, big.NewInt(int64(len(keyChars))))
+		if err != nil {
+			return nil, err
+		}
+		buf[i] = keyChars[c.Int64()]
+	}
+	return buf, nil
+}
+
+// signingKey returns the current JWT signing key. rotateJWTKey can replace it while
+// requests are in flight, so every read goes through the lock.
+func (s *Server) signingKey() []byte {
+	s.jwtMu.RLock()
+	defer s.jwtMu.RUnlock()
+	return s.jwtKey
+}
+
+// rotateJWTKey replaces the signing key, persists it, and so invalidates every token
+// issued before the call. The file is written first: if that fails the old key stays
+// in use, rather than the process signing with a key that a restart would forget.
+func (s *Server) rotateJWTKey() error {
+	key, err := randomKey(32)
+	if err != nil {
+		return fmt.Errorf("generate jwt key: %w", err)
+	}
+	if s.jwtKeyPath != "" {
+		tmp := s.jwtKeyPath + ".tmp"
+		if err := os.WriteFile(tmp, key, 0o600); err != nil {
+			return fmt.Errorf("write jwt key: %w", err)
+		}
+		if err := os.Rename(tmp, s.jwtKeyPath); err != nil {
+			_ = os.Remove(tmp)
+			return fmt.Errorf("replace jwt key: %w", err)
+		}
+	}
+	s.jwtMu.Lock()
+	s.jwtKey = key
+	s.jwtMu.Unlock()
+	return nil
+}
+
+// resolveSetupToken returns the token that POST /api/auth/init must present, and
+// whether it came from ARTEX_SETUP_TOKEN. Without it, whoever reached the port first
+// after a fresh install could set the admin password and take the instance.
+func resolveSetupToken() (string, bool, error) {
+	if v := strings.TrimSpace(os.Getenv("ARTEX_SETUP_TOKEN")); v != "" {
+		return v, true, nil
+	}
+	k, err := randomKey(24)
+	if err != nil {
+		return "", false, fmt.Errorf("generate setup token: %w", err)
+	}
+	return string(k), false, nil
+}
+
+// signJWT issues a 12-hour HS256 token for user ARTEX.
 func signJWT(key []byte) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
 		Subject:   "ARTEX",
@@ -106,7 +162,9 @@ func verifyJWT(tokenStr string, key []byte) bool {
 }
 
 // extractToken reads the JWT from Authorization: Bearer header,
-// artex_token cookie, or ?token= query param (for SSE connections).
+// artex_token cookie, or ?token= query param. The query param is accepted only on
+// the SSE streams, because EventSource cannot send headers. Anywhere else a token in
+// the URL would just end up in proxy and access logs.
 func extractToken(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		return strings.TrimPrefix(h, "Bearer ")
@@ -114,7 +172,19 @@ func extractToken(r *http.Request) string {
 	if c, err := r.Cookie("artex_token"); err == nil && c.Value != "" {
 		return c.Value
 	}
-	return r.URL.Query().Get("token")
+	if r.Method == http.MethodGet && isSSEPath(r.URL.Path) {
+		return r.URL.Query().Get("token")
+	}
+	return ""
+}
+
+// isSSEPath reports whether p is one of the event-stream routes.
+func isSSEPath(p string) bool {
+	switch p {
+	case "/api/logs/stream", "/api/exploration/activity/stream":
+		return true
+	}
+	return strings.HasPrefix(p, "/api/side-questions/") && strings.HasSuffix(p, "/events")
 }
 
 // requireAuth wraps h with JWT validation.
@@ -131,7 +201,7 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 			writeErr(w, 401, "unauthorized")
 			return
 		}
-		if !verifyJWT(tok, s.jwtKey) {
+		if !verifyJWT(tok, s.signingKey()) {
 			writeErr(w, 401, "token is invalid or expired")
 			return
 		}
@@ -172,10 +242,16 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Password string `json:"password"`
+		Password   string `json:"password"`
+		SetupToken string `json:"setup_token"`
 	}
 	if err := decode(r, &req); err != nil || req.Password == "" {
 		writeErr(w, 400, "password cannot be empty")
+		return
+	}
+	// An empty server-side token means it was never set up; fail closed.
+	if s.setupToken == "" || subtle.ConstantTimeCompare([]byte(req.SetupToken), []byte(s.setupToken)) != 1 {
+		writeErr(w, 403, "setup token is incorrect (find it in the server log, or set ARTEX_SETUP_TOKEN)")
 		return
 	}
 	if msg := validatePassword(req.Password); msg != "" {
@@ -200,7 +276,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "password is already set")
 		return
 	}
-	tok, err := signJWT(s.jwtKey)
+	tok, err := signJWT(s.signingKey())
 	if err != nil {
 		writeErr(w, 500, "failed to generate token")
 		return
@@ -210,13 +286,14 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/auth/change-password — changes the admin password. Requires a valid
 // token (this route is under /api/auth/* which requireAuth exempts, so the token
-// is validated here) AND the current password.
+// is validated here) AND the current password. It then rotates the signing key, so
+// every other session is signed out, and returns a fresh token for the caller.
 func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
 		return
 	}
-	if !verifyJWT(extractToken(r), s.jwtKey) {
+	if !verifyJWT(extractToken(r), s.signingKey()) {
 		writeErr(w, 401, "unauthorized")
 		return
 	}
@@ -258,7 +335,16 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "failed to save: "+err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	if err := s.rotateJWTKey(); err != nil {
+		writeErr(w, 500, "password updated, but signing out other sessions failed: "+err.Error())
+		return
+	}
+	tok, err := signJWT(s.signingKey())
+	if err != nil {
+		writeErr(w, 500, "password updated; sign in again")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "token": tok})
 }
 
 // POST /api/auth/login — validates username/password and returns a JWT.
@@ -292,7 +378,7 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "incorrect username or password")
 		return
 	}
-	tok, err := signJWT(s.jwtKey)
+	tok, err := signJWT(s.signingKey())
 	if err != nil {
 		writeErr(w, 500, "failed to generate token")
 		return

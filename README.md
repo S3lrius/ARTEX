@@ -84,7 +84,7 @@ The script requires Docker to already be installed, then asks you to choose **�
 - **① All Docker**: enter a Postgres password (Enter for a random one) → writes `.env` → builds the ARTEX image from this source → `docker compose up -d`. Postgres is the only image that is pulled (`postgres:16-alpine`).
 - **② Local run**: choose a database (connect to an existing one, or start one with Docker) → writes `config.json` → `go` builds a single binary with the frontend embedded → starts it.
 
-Then open **http://localhost:8787** (the first visit to `/setup` sets the administrator password).
+Then open **http://localhost:8787**. The first visit to `/setup` sets the administrator password and asks for the setup token: either `ARTEX_SETUP_TOKEN` from `.env`, or the random one printed to the log (`docker compose logs artex | grep "setup token"`). The UI listens on 127.0.0.1 only unless you set `ARTEX_BIND` in `.env`.
 
 ### Method 2: Docker Compose (manual)
 

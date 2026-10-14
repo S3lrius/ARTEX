@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -80,6 +82,82 @@ func TestValidatePassword(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := validatePassword(tc.pw); (got != "") != tc.wantErr {
 				t.Fatalf("validatePassword(%q)=%q, wantErr=%v", tc.pw, got, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestExtractTokenAcceptsQueryTokenOnlyOnSSE(t *testing.T) {
+	for _, tc := range []struct {
+		method, target string
+		want           string
+	}{
+		{"GET", "/api/logs/stream?token=abc", "abc"},
+		{"GET", "/api/exploration/activity/stream?task=1&token=abc", "abc"},
+		{"GET", "/api/side-questions/42/events?token=abc", "abc"},
+		{"GET", "/api/tasks?token=abc", ""},
+		{"GET", "/api/workspace/download?path=x&token=abc", ""},
+		{"POST", "/api/logs/stream?token=abc", ""},
+	} {
+		r := httptest.NewRequest(tc.method, tc.target, nil)
+		if got := extractToken(r); got != tc.want {
+			t.Errorf("%s %s: extractToken=%q want %q", tc.method, tc.target, got, tc.want)
+		}
+	}
+}
+
+func TestRotateJWTKeyInvalidatesOldTokens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), jwtKeyFilename)
+	s := &Server{jwtKey: []byte("original-signing-key-for-rotation"), jwtKeyPath: path}
+	old, err := signJWT(s.signingKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.rotateJWTKey(); err != nil {
+		t.Fatal(err)
+	}
+	if verifyJWT(old, s.signingKey()) {
+		t.Fatal("a token signed before rotation must stop verifying")
+	}
+	fresh, err := signJWT(s.signingKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verifyJWT(fresh, s.signingKey()) {
+		t.Fatal("a token signed after rotation must verify")
+	}
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(onDisk) != string(s.signingKey()) {
+		t.Fatal("the rotated key must be persisted, or a restart would revive old tokens")
+	}
+}
+
+func TestAuthInitRequiresSetupToken(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	if hash, _, err := m.pg.GetSetting(authPassKey); err != nil || hash != "" {
+		t.Skip("test database already has a password set")
+	}
+	for _, tc := range []struct{ name, serverToken, body string }{
+		{"missing token", "right-token", `{"password":"correct horse battery"}`},
+		{"wrong token", "right-token", `{"password":"correct horse battery","setup_token":"wrong"}`},
+		{"setup closed", "", `{"password":"correct horse battery","setup_token":""}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Server{m: m, setupToken: tc.serverToken, jwtKey: []byte("init-test-signing-key")}
+			w := httptest.NewRecorder()
+			s.authInit(w, httptest.NewRequest("POST", "/api/auth/init", strings.NewReader(tc.body)))
+			if w.Code != 403 {
+				t.Fatalf("status=%d want 403; body=%s", w.Code, w.Body.String())
+			}
+			if hash, _, _ := m.pg.GetSetting(authPassKey); hash != "" {
+				t.Fatal("a rejected init must not set the password")
 			}
 		})
 	}
