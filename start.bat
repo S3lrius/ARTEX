@@ -10,11 +10,10 @@ rem
 rem It does one thing: run artex.exe, then decide from the exit code whether to start it again.
 rem
 rem   0      clean user stop      -> leave the loop
-rem   75     program asked to restart -> rerun immediately (UI "one-click update" or "rollback")
+rem   75     program asked to restart -> rerun immediately
 rem   other  crash                 -> back off and rerun (1->2->4... up to 60 seconds)
 rem
-rem Download, SHA256 checks, and binary swap are not done here. artex finishes them
-rem itself at startup (the selfupdate package). The script stays simple; see the top of start.sh.
+rem This script does not download or replace the binary. See the top of start.sh.
 rem
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
@@ -39,8 +38,7 @@ if "!code!"=="0" (
 )
 
 if "!code!"=="%RESTART_CODE%" (
-	rem Update/rollback is staged: on the next start artex swaps the binary.
-	echo [artex] restart requested (apply new version)...
+	echo [artex] restart requested...
 	set /a delay=1
 	goto loop
 )

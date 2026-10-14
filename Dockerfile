@@ -58,8 +58,7 @@ RUN npm install -g @playwright/mcp@latest @playwright/cli@latest playwright@late
 WORKDIR /app
 # Single binary produced by the build stage (frontend embedded)
 COPY --from=gobuild /out/artex /app/artex
-# Supervisor: after the process exits, the exit code decides whether to start it again.
-# The one-click update in the UI depends on this swap.
+# Supervisor: after a crash it starts the process again.
 # It also forwards SIGTERM to artex — docker stop sends the signal only to PID 1.
 # Without forwarding, artex never receives it, cannot shut down cleanly, and is SIGKILL'd after 10 seconds.
 COPY start.sh /app/start.sh

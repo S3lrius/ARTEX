@@ -8,7 +8,7 @@ This tree is [S3lrius/ARTEX](https://github.com/S3lrius/ARTEX). It is a fork of 
 
 - The interface, prompts, comments, and docs are English.
 - You build and run this source. Compose does not pull a published ARTEX image.
-- The app does not check for or download updates on its own. Nothing is fetched from GitHub until you open System settings and click **Check for updates**. To move to a newer build, pull this repository and rebuild.
+- There is no in-app updater. To move to a newer build, pull this repository and rebuild.
 
 The original project is [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX). Its simulated demo is [artex-demo.mhtsec.com](https://artex-demo.mhtsec.com). That demo, and any image published for the original project, is not how this fork is installed.
 
@@ -115,7 +115,7 @@ cp config.example.json config.json   # fill in the database connection
 ./start.sh                           # → http://localhost:8787
 ```
 
-> Start with `start.sh` / `start.bat`, not by running `./artex` directly. It is a supervisor: after the process exits, the exit code decides whether to start it again, and the **[one-click update](#method-1-one-click-update-in-the-ui-recommended) in the UI depends on it to swap the binary**. If you run `./artex` directly, it will not come back after an update.
+> Start with `start.sh` / `start.bat`, not by running `./artex` directly. It is a supervisor: after a crash it starts the process again, and under Docker it forwards stop signals to the program.
 > Background: `nohup ./start.sh >artex.log 2>&1 &`.
 
 ### Method 4: Build a single binary from source
@@ -152,20 +152,9 @@ ARTEX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 
 > An upgrade replaces the program and leaves data in place: the Postgres volume `pgdata`, `./data` (jwt.key / SQLite, and so on), and `./skills` are kept. **Database migrations do not need to be run by hand** — every start of `artex` re-applies `schema.sql` idempotently (including `ADD COLUMN` / `CREATE INDEX IF NOT EXISTS`), so a restart is a migration. Back up `./data` and the database before upgrading anyway.
 
-### Method 1: One-click update in the UI (recommended)
+There is no updater in the app. Pull this repository and rebuild.
 
-On the **System settings** page (sidebar "System settings" → `/system/settings`), the **Version and updates** card can check for and install a new version without logging in to the server. It looks at releases of **this fork** (`S3lrius/ARTEX`), not the original project. A Docker install should still be upgraded by rebuilding the image (method 3).
-
-After you click "Update": download the release for this platform → compare it with the Release `SHA256SUMS` → smoke-test the new binary with `-h` → stage it as `artex.new` → the process exits, and `start.sh` / `start.bat` starts it again and finishes the swap. The page waits until the new version is up, then refreshes.
-
-- **A failed update does not leave a broken program**: if the checksum or smoke test fails, the staged file is discarded and the current version keeps running. If the new version fails to start 3 times in a row after the swap, it rolls back to `artex.old` (the failed binary is kept as `artex.failed` for debugging).
-- **You can roll back at any time**: the previous version is kept as `artex.old`, and the card has "Roll back to the previous version". The database schema does not roll back.
-- **An update interrupts running tasks** — an update is a restart. Do it when the system is idle.
-- **Dev builds cannot update**: the action is disabled when the version is `dev` or a `git describe` string with a suffix, so a release does not overwrite a local debug binary.
-- **Under Docker, only the program is replaced, not the image**: playwright, nmap, and the rest of the toolchain in the image do not upgrade with it, and `docker compose up -d` recreates the container from the image you last built. To rebuild that image from this source, use `docker compose build artex && docker compose up -d artex`.
-- If GitHub needs a proxy, set the **global proxy** on the same page. The update path uses it. Updates download only from GitHub hostnames and force HTTPS.
-
-### Method 2: One-command update script
+### Method 1: One-command update script
 
 ```bash
 cd ARTEX
@@ -177,7 +166,7 @@ The script optionally `git pull`s the latest code, then asks you to choose **①
 - **① Docker**: `docker compose build artex` → `docker compose up -d` (the rebuilt image restarts and migrates automatically).
 - **② Local**: rebuild the frontend static assets → recompile `./artex` (restart the process afterward).
 
-### Method 3: Docker Compose (manual)
+### Method 2: Docker Compose (manual)
 
 ```bash
 cd ARTEX
@@ -187,7 +176,7 @@ docker compose up -d artex     # rebuilt image restarts → schema migrates auto
 docker image prune -f          # remove old images (optional)
 ```
 
-### Method 4: Prebuilt binary (Releases)
+### Method 3: Prebuilt binary (Releases)
 
 Download the new zip from this fork's [Releases](https://github.com/S3lrius/ARTEX/releases), stop the old process, replace `artex` and `skills/` (keep your `config.json` and `data/`), and start again:
 
@@ -196,7 +185,7 @@ cp -r <unzipped-dir>/skills ./ && cp <unzipped-dir>/artex ./
 ./start.sh
 ```
 
-### Method 5: Build from source
+### Method 4: Build from source
 
 ```bash
 git pull

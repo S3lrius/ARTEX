@@ -9,14 +9,10 @@
 # It does one thing: run artex, then decide from the exit code whether to start it again.
 #
 #   0      clean user stop         → leave the loop
-#   75     program asked to restart → rerun immediately (UI "one-click update" or "rollback")
+#   75     program asked to restart → rerun immediately
 #   other  crash                    → back off and rerun (1→2→4… up to 60 seconds)
 #
-# Download, SHA256 checks, and binary swap are deliberately not done here. That logic
-# would have to be written twice (sh and bat), and it is the part that must not go wrong —
-# if a binary that cannot start is installed, this script would faithfully keep launching it
-# and the only recovery would be a manual fix on the machine. Verification and swap stay in
-# Go (the selfupdate package). artex finishes them itself at startup. The script stays simple.
+# This script does not download or replace the binary.
 set -u
 
 cd "$(dirname "$0")" || exit 1
@@ -69,8 +65,7 @@ while :; do
 			exit 0
 			;;
 		"$RESTART_CODE")
-			# Update/rollback is staged: on the next start artex swaps the binary (see selfupdate.Bootstrap).
-			echo "[artex] restart requested (apply new version)…"
+			echo "[artex] restart requested…"
 			delay=1
 			;;
 		*)

@@ -173,10 +173,8 @@ package_binary() {
   rm -rf "$package_root" "$archive"
   mkdir -p "$package_root"
   cp "$binary" "$package_root/"
-  # The supervisor is the real entry point: the one-click update in the UI
-  # depends on it restarting the process after exit. Running the artex binary
-  # directly means it will not come back after an update. Ship only the script
-  # that matches the target OS.
+  # The supervisor restarts the process after a crash and, under Docker, forwards
+  # stop signals. Ship only the script that matches the target OS.
   if [ "$goos" = "windows" ]; then
     cp start.bat "$package_root/"
   else
