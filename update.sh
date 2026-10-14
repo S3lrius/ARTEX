@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ARTEX updater: ① Docker update (pull a new image and recreate)  ② local rebuild (rebuild the binary)
+# ARTEX updater: ① Docker update (rebuild the image and recreate)  ② local rebuild (rebuild the binary)
 # Counterpart of install.sh: install does the first setup, update upgrades to a new version.
 # Database migrations do not need to be run by hand — artex re-applies schema.sql idempotently
 # on every start (including ADD COLUMN / CREATE INDEX IF NOT EXISTS), so a restart is a migration.
@@ -28,23 +28,12 @@ update_docker(){
     || die "docker / docker compose not found; install with ./install.sh first"
   [ -f .env ] || die ".env not found; run ./install.sh for the first deploy"
 
-  # Optional: upgrade to a specific image tag (empty keeps ARTEX_TAG from .env, which defaults to latest)
-  local tag; tag="$(ask 'Target image tag (Enter keeps .env / latest)' '')"
-  if [ -n "$tag" ]; then
-    if grep -q '^ARTEX_TAG=' .env; then
-      sed -i.bak "s|^ARTEX_TAG=.*|ARTEX_TAG=${tag}|" .env && rm -f .env.bak
-    else
-      printf '\nARTEX_TAG=%s\n' "$tag" >> .env
-    fi
-    ok "ARTEX_TAG set to ${tag}"
-  fi
-
   # Touch only artex: postgres is pinned to 16-alpine and does not need to follow
   # (pulling it only wastes bandwidth, and a major-version jump can break compatibility).
   # artex declares depends_on postgres, so `up` with the service name starts postgres
   # if it is down, and leaves an already-running postgres as-is without recreating it.
-  info "pulling the new image (artex only)…"
-  docker compose pull artex
+  info "building ARTEX from this source…"
+  docker compose build artex
   info "recreating and starting (artex migrates the schema on restart)…"
   docker compose up -d artex
   ok "update finished → http://localhost:8787"
@@ -74,7 +63,7 @@ update_local(){
 
 echo "=============================="
 echo "  ARTEX update"
-echo "  1) Docker update (pull a new image and recreate)"
+echo "  1) Docker update (rebuild the image and recreate)"
 echo "  2) Local update (rebuild with go)"
 echo "=============================="
 case "$(ask 'Choice' 1)" in

@@ -141,7 +141,7 @@ export function UpdateCard() {
         "The app will restart and running tasks will be interrupted.\n" +
         (info.mode === "docker"
           ? "\nIn a container this only replaces the program, not Playwright, nmap, or the rest of the image toolchain. " +
-            "If the new version needs new tools, use docker compose pull instead."
+            "If the new version needs new tools, rebuild with docker compose build instead."
           : ""),
     );
     if (!ok) return;
@@ -273,8 +273,8 @@ export function UpdateCard() {
           <p className="text-xs text-muted-foreground">
             An update inside Docker only replaces the program, not Playwright, nmap, or the rest of the image toolchain. Running
             <span className="font-mono"> docker compose up -d </span>
-            rebuilds the container and goes back to the version baked into the image. To upgrade the image as well, run
-            <span className="font-mono"> docker compose pull artex &amp;&amp; docker compose up -d artex</span>.
+            recreates the container from the image you last built. To pick up source changes, rebuild it:
+            <span className="font-mono"> docker compose build artex &amp;&amp; docker compose up -d artex</span>.
           </p>
         )}
 

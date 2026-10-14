@@ -2,12 +2,15 @@
 
 # ARTEX
 
-Autonomous AI penetration-testing system (Go backend + Next.js frontend)
+English fork of the autonomous AI penetration-testing system (Go backend + Next.js frontend).
 
+This tree is [S3lrius/ARTEX](https://github.com/S3lrius/ARTEX). It is a fork of the original project, not a mirror of it. The priorities here are different:
 
-🌐 **Online demo (simulated data)**: [https://artex-demo.mhtsec.com](https://artex-demo.mhtsec.com)
+- The interface, prompts, comments, and docs are English.
+- You build and run this source. Compose does not pull a published ARTEX image.
+- In-app updates check **this** repository's GitHub releases. They do not download the original project's binaries.
 
-📦 **This repository is a pure-source backup of the last ARTEX release. The original Docker image `autumn27/artex` is gone. This repository now maintains `mianhuatang11/artex` on Docker Hub. If a pull fails, `docker compose build` builds from this source with no external prebuilt dependencies.**
+The original project is [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX). Its simulated demo is [artex-demo.mhtsec.com](https://artex-demo.mhtsec.com). That demo, and any image published for the original project, is not how this fork is installed.
 
 </div>
 
@@ -15,7 +18,7 @@ Autonomous AI penetration-testing system (Go backend + Next.js frontend)
 
 ## Screenshots
 
-> Full interaction is in the [online demo](https://artex-demo.mhtsec.com) (frontend only + mock data; no backend required).
+> The screenshots below are from the original project. This fork's interface is the English translation of that UI.
 
 | Dashboard (overview / token usage / activity stream) | Task list |
 | :---: | :---: |
@@ -71,14 +74,14 @@ Assets can be synced directly from [ScopeSentry](https://github.com/Autumn-27/Sc
 ### Method 1: One-command install script (recommended)
 
 ```bash
-git clone https://github.com/mhtsec/ARTEX.git
+git clone https://github.com/S3lrius/ARTEX.git
 cd ARTEX
 ./install.sh
 ```
 
 The script detects Docker and can install it, then asks you to choose **① all Docker** or **② local build and run**:
 
-- **① All Docker**: enter a Postgres password (Enter for a random one) → writes `.env` → `docker compose up -d`.
+- **① All Docker**: enter a Postgres password (Enter for a random one) → writes `.env` → builds the ARTEX image from this source → `docker compose up -d`. Postgres is the only image that is pulled (`postgres:16-alpine`).
 - **② Local run**: choose a database (connect to an existing one, or start one with Docker) → writes `config.json` → `go` builds a single binary with the frontend embedded → starts it.
 
 Then open **http://localhost:8787** (the first visit to `/setup` sets the administrator password).
@@ -86,16 +89,15 @@ Then open **http://localhost:8787** (the first visit to `/setup` sets the admini
 ### Method 2: Docker Compose (manual)
 
 ```bash
-git clone https://github.com/mhtsec/ARTEX.git
+git clone https://github.com/S3lrius/ARTEX.git
 cd ARTEX
 cp .env.example .env          # set POSTGRES_PASSWORD and optional ANTHROPIC_API_KEY
-docker compose up -d          # pull the mianhuatang11/artex image + postgres
+docker compose up -d --build  # build ARTEX from this source; pull postgres:16-alpine
 # → http://localhost:8787
 ```
 
-> The original image `autumn27/artex` was deleted from Docker Hub. This repository now maintains **`mianhuatang11/artex`**.
-> If the image is unavailable (or you want to change the code), build from this source: `docker compose build && docker compose up -d`.
-> The Dockerfile is multi-stage (frontend static export → static Go build → runtime image). It defaults to China-friendly dependency sources. Override them with `--build-arg GOPROXY=... / --build-arg NPM_REGISTRY=...`.
+> There is no ARTEX image to pull. `docker compose up` builds the `artex` service from the Dockerfile in this repository.
+> The Dockerfile is multi-stage (frontend static export → static Go build → runtime image). Module downloads use the public Go and npm registries. If you need a mirror, pass `--build-arg GOPROXY=...` and `--build-arg NPM_REGISTRY=...`.
 
 The image already includes common tools (ripgrep/curl/vim/npm/nmap…). `./skills` and `./data` are bind-mounted so they persist.
 
@@ -106,7 +108,7 @@ Legacy SSE servers usually open the event stream with `GET /sse`, then accept JS
 
 ### Method 3: Download a prebuilt binary (Releases)
 
-Download the zip for your platform from the original repository's [Releases](https://github.com/Autumn-27/ARTEX/releases) (**this backup repository does not host binaries**; if those Releases are gone too, use method 2 or method 4). Unzip to get `artex` + `start.sh` (`start.bat` on Windows) + `skills/` + `config.example.json`:
+Download the zip for your platform from this fork's [Releases](https://github.com/S3lrius/ARTEX/releases) (**binaries exist only after a version tag is published here**; otherwise use method 2 or method 4). Unzip to get `artex` + `start.sh` (`start.bat` on Windows) + `skills/` + `config.example.json`:
 
 ```bash
 cp config.example.json config.json   # fill in the database connection
@@ -152,7 +154,7 @@ ARTEX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 
 ### Method 1: One-click update in the UI (recommended)
 
-On the **System settings** page (sidebar "System settings" → `/system/settings`), the **Version and updates** card can check for and install a new version without logging in to the server.
+On the **System settings** page (sidebar "System settings" → `/system/settings`), the **Version and updates** card can check for and install a new version without logging in to the server. It looks at releases of **this fork** (`S3lrius/ARTEX`), not the original project. A Docker install should still be upgraded by rebuilding the image (method 3).
 
 After you click "Update": download the release for this platform → compare it with the Release `SHA256SUMS` → smoke-test the new binary with `-h` → stage it as `artex.new` → the process exits, and `start.sh` / `start.bat` starts it again and finishes the swap. The page waits until the new version is up, then refreshes.
 
@@ -160,7 +162,7 @@ After you click "Update": download the release for this platform → compare it 
 - **You can roll back at any time**: the previous version is kept as `artex.old`, and the card has "Roll back to the previous version". The database schema does not roll back.
 - **An update interrupts running tasks** — an update is a restart. Do it when the system is idle.
 - **Dev builds cannot update**: the action is disabled when the version is `dev` or a `git describe` string with a suffix, so a release does not overwrite a local debug binary.
-- **Under Docker, only the program is replaced, not the image**: playwright, nmap, and the rest of the toolchain in the image do not upgrade with it, and `docker compose up -d` recreates the container back to the version baked into the image. To upgrade the image as well, use `docker compose pull artex && docker compose up -d artex`.
+- **Under Docker, only the program is replaced, not the image**: playwright, nmap, and the rest of the toolchain in the image do not upgrade with it, and `docker compose up -d` recreates the container from the image you last built. To rebuild that image from this source, use `docker compose build artex && docker compose up -d artex`.
 - If GitHub needs a proxy, set the **global proxy** on the same page. The update path uses it. Updates download only from GitHub hostnames and force HTTPS.
 
 ### Method 2: One-command update script
@@ -172,23 +174,22 @@ cd ARTEX
 
 The script optionally `git pull`s the latest code, then asks you to choose **① Docker update** or **② local rebuild** (matching `install.sh`):
 
-- **① Docker**: optional image tag (Enter keeps `ARTEX_TAG` from `.env`, default `latest`) → `docker compose pull` → `docker compose up -d` (the new image restarts and migrates automatically).
+- **① Docker**: `docker compose build artex` → `docker compose up -d` (the rebuilt image restarts and migrates automatically).
 - **② Local**: rebuild the frontend static assets → recompile `./artex` (restart the process afterward).
 
 ### Method 3: Docker Compose (manual)
 
 ```bash
 cd ARTEX
-git pull                       # update compose / scripts (optional)
-# Pin a version: set ARTEX_TAG=v0.2.0 in .env; otherwise latest is used
-docker compose pull artex
-docker compose up -d artex     # new image restarts → schema migrates automatically
+git pull                       # update this fork (optional)
+docker compose build artex
+docker compose up -d artex     # rebuilt image restarts → schema migrates automatically
 docker image prune -f          # remove old images (optional)
 ```
 
 ### Method 4: Prebuilt binary (Releases)
 
-Download the new zip from [Releases](https://github.com/Autumn-27/ARTEX/releases), stop the old process, replace `artex` and `skills/` (keep your `config.json` and `data/`), and start again:
+Download the new zip from this fork's [Releases](https://github.com/S3lrius/ARTEX/releases), stop the old process, replace `artex` and `skills/` (keep your `config.json` and `data/`), and start again:
 
 ```bash
 cp -r <unzipped-dir>/skills ./ && cp <unzipped-dir>/artex ./
@@ -463,7 +464,7 @@ The attack chain therefore **advances steadily, without repeats and without gett
 
 ## Community
 
-Scan the QR code to follow the WeChat official account **SecSentry**, then send a private message in the account to join the group.
+The group below belongs to the original project, not this fork. Scan the QR code to follow the WeChat official account **SecSentry**, then send a private message in the account to join the group.
 
 <div align="center">
 

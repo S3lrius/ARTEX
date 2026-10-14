@@ -15,10 +15,9 @@ services:
     restart: unless-stopped
 
   artex:
-    # Image is maintained by this repository (the original autumn27/artex image was removed from Docker Hub).
-    # A normal deploy pulls this image. If the pull fails, or you want to change the code, build locally:
-    #   docker compose build
-    image: mianhuatang11/artex:${ARTEX_TAG:-latest}
+    # Built from this repository. There is no published image to pull.
+    # `docker compose up` builds this service when the local image is missing.
+    # Rebuild after a source change with `docker compose build artex` or `up --build`.
     build:
       context: .
       dockerfile: Dockerfile

@@ -45,8 +45,11 @@ install_docker(){
   else
     info "keeping the existing .env"
   fi
-  info "pulling images and starting…"
-  docker compose pull || true
+  info "pulling the Postgres image…"
+  docker compose pull postgres
+  info "building ARTEX from this source…"
+  docker compose build artex
+  info "starting…"
   docker compose up -d
   ok "started → http://localhost:8787"
   info "logs: docker compose logs -f artex"

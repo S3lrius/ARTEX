@@ -416,7 +416,7 @@ Important changes to this project are recorded in this file. The format follows 
 
 #### Known limitations
 
-- Under Docker, only the program is replaced, not the image: the toolchain does not upgrade with it, and recreating the container returns to the version baked into the image. Use `docker compose pull artex` when that is needed.
+- Under Docker, only the program is replaced, not the image: the toolchain does not upgrade with it, and recreating the container returns to the version baked into the image. Rebuild with `docker compose build artex` when that is needed.
 - `skills/` inside the release archive is not synced, so a built-in skill added in a new version does not take effect automatically.
 - An update is a restart and interrupts running tasks.
 
