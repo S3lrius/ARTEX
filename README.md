@@ -79,7 +79,7 @@ cd ARTEX
 ./install.sh
 ```
 
-The script detects Docker and can install it, then asks you to choose **① all Docker** or **② local build and run**:
+The script requires Docker to already be installed, then asks you to choose **① all Docker** or **② local build and run**:
 
 - **① All Docker**: enter a Postgres password (Enter for a random one) → writes `.env` → builds the ARTEX image from this source → `docker compose up -d`. Postgres is the only image that is pulled (`postgres:16-alpine`).
 - **② Local run**: choose a database (connect to an existing one, or start one with Docker) → writes `config.json` → `go` builds a single binary with the frontend embedded → starts it.

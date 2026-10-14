@@ -10,24 +10,12 @@ die(){  printf '\033[31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 ask(){  local p="$1" d="${2:-}" a; read -rp "$p${d:+ [$d]}: " a; echo "${a:-$d}"; }
 rand(){ head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24; }
 
-# ── docker detection / automatic install ───────────────────
+# ── docker detection ───────────────────────────────────────
 ensure_docker(){
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     ok "docker and docker compose detected"; return
   fi
-  warn "docker / docker compose not detected"
-  case "$(uname -s)" in
-    Linux)
-      if [ "$(ask 'Install Docker automatically? (y/n)' y)" = y ]; then
-        curl -fsSL https://get.docker.com | sh
-        sudo usermod -aG docker "$USER" || true
-        ok "Docker installed (log in again so the group change lets you skip sudo)"
-      else
-        die "Install docker yourself and retry"
-      fi ;;
-    Darwin) die "On macOS, install Docker Desktop: https://www.docker.com/products/docker-desktop/" ;;
-    *)      die "Install docker yourself and retry" ;;
-  esac
+  die "Docker is not installed. Install it yourself, then retry. This script does not download an installer."
 }
 
 # ── ① all Docker ───────────────────────────────
