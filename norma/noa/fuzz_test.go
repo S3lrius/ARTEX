@@ -21,7 +21,7 @@ func FuzzParseCompressArgs(f *testing.F) {
 		`{"content":[{"startId":"m1","endId":"m2","summary":"first"},{"startId":"m3","end`,
 		`{"topic":"t","summaryMaxChars":30000,"content":[{"startId":"m1","endId":"m2","summary":"s"}]}`,
 		`"{\"content\":[{\"startId\":\"m1\",\"endId\":\"m2\",\"summary\":\"s\"}]}"`,
-		`{"content":[{"startId":"认证","endId":"m2","summary":"中文摘要 🔐"}]}`,
+		`{"content":[{"startId":"auth","endId":"m2","summary":"text summary 🔐"}]}`,
 		``,
 		`null`,
 		`[]`,
@@ -82,7 +82,7 @@ func FuzzParseCompressArgs(f *testing.F) {
 func FuzzParseBoundary(f *testing.F) {
 	for _, s := range []string{
 		"m00001", "m1", "m99999", "b1", "b999", "b3(T2)", "  M00007  ",
-		"", "m", "m0", "b0", "0", "-1", "m100000", "认证", "b1(T", "m00001x",
+		"", "m", "m0", "b0", "0", "-1", "m100000", "auth", "b1(T", "m00001x",
 	} {
 		f.Add(s)
 	}
@@ -119,7 +119,7 @@ func FuzzParseBoundary(f *testing.F) {
 // provider would reject it) and never grow what it was asked to shrink.
 func FuzzTruncateBody(f *testing.F) {
 	f.Add(strings.Repeat("a", 10000), 2500)
-	f.Add(strings.Repeat("中文", 5000), 2500)
+	f.Add(strings.Repeat("あい", 5000), 2500)
 	f.Add(strings.Repeat("🔐", 4000), 2500)
 	f.Add("short", 1)
 
@@ -189,7 +189,7 @@ func FuzzAssignRefs(f *testing.F) {
 // it has to remain valid text of a bounded size.
 func FuzzStubSummary(f *testing.F) {
 	f.Add(strings.Repeat("a", 1000))
-	f.Add(strings.Repeat("中", 1000))
+	f.Add(strings.Repeat("あ", 1000))
 	f.Add("short")
 	f.Add("")
 

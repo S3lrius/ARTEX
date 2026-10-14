@@ -34,12 +34,12 @@ export function useApprovalFocus({ taskId, conversationId }: { taskId?: string; 
             ? source.conversation_id !== conversationId
             : source.task_id !== taskId || source.conversation_id != null
         ) {
-          throw new Error("审批来源与当前会话不一致");
+          throw new Error("The approval source does not match this session");
         }
         setState({ id, source, loading: false });
       })
       .catch((e) => {
-        if (!cancelled) setState({ id, error: (e as Error).message || "无法定位原始执行", loading: false });
+        if (!cancelled) setState({ id, error: (e as Error).message || "Could not locate the original run", loading: false });
       });
     return () => {
       cancelled = true;
@@ -78,13 +78,13 @@ export function useApprovalHistory(
         const page = await loadPage(before);
         if (cancelled) return;
         if (!page.items.length || (before > 0 && page.items[0].seq >= before)) {
-          throw new Error("会话中未找到对应工具调用，记录可能已删除");
+          throw new Error("The matching tool call is not in this session. The record may have been deleted.");
         }
         mergePage(page);
         current = page.items;
         before = current[0].seq;
         if (!page.hasMore && !current.some((a) => a.seq === source.seq)) {
-          throw new Error("会话中未找到对应工具调用");
+          throw new Error("The matching tool call is not in this session");
         }
       }
       if (!cancelled) setResult({ source });
@@ -118,19 +118,19 @@ export function ApprovalExecutionFocus({
     >
       <span className={error ? "text-destructive" : "text-muted-foreground"}>
         {error
-          ? `无法定位：${error}`
+          ? `Could not locate it: ${error}`
           : history.ready
-            ? `已展开审批 #${state.id} 对应的工具调用`
-            : `正在加载审批 #${state.id} 所在的对话位置…`}
+            ? `Expanded the tool call for approval #${state.id}`
+            : `Loading where approval #${state.id} sits in the conversation…`}
       </span>
       <div className="flex gap-2">
         {error ? (
           <Button size="sm" variant="outline" onClick={focus.retry}>
-            重试定位
+            Try locating again
           </Button>
         ) : null}
         <Button size="sm" variant="ghost" onClick={focus.close}>
-          取消定位
+          Cancel locate
         </Button>
       </div>
     </div>

@@ -191,7 +191,7 @@ func TestSummaryLengthBoundaries(t *testing.T) {
 // times its apparent size.
 func TestSummaryLengthCountsRunes(t *testing.T) {
 	msgs, st := fixture(t, 6, 2000)
-	cjk := strings.Repeat("认证方案设计与实现决策记录", 5) // 65 runes, 195 bytes
+	cjk := strings.Repeat("あ", 65) // 65 runes, 195 bytes
 	if len([]rune(cjk)) < 50 || len(cjk) < 150 {
 		t.Fatalf("fixture is wrong: %d runes, %d bytes", len([]rune(cjk)), len(cjk))
 	}
@@ -263,7 +263,7 @@ func TestCompressSameBlockBothEnds(t *testing.T) {
 // --- Unicode and odd content --------------------------------------------
 
 func TestCompressPreservesUnicodeInArchive(t *testing.T) {
-	content := "错误：认证失败 🔐 at auth/jwt.go:42\n" + strings.Repeat("日志行内容。", 900)
+	content := "Error: authentication failed 🔐 at auth/jwt.go:42\n" + strings.Repeat("log line content.", 900)
 	msgs := []CoreMessage{
 		msg("u0", RoleUser, CTText, "the task"),
 		msg("cjk", RoleAssistant, CTText, content),
@@ -284,7 +284,7 @@ func TestCompressPreservesUnicodeInArchive(t *testing.T) {
 		t.Fatalf("no block: %v", res.Errors)
 	}
 	body := arch.content(res.BlocksCreated[0].ArchivePath)
-	if !strings.Contains(body, "错误：认证失败 🔐") {
+	if !strings.Contains(body, "Error: authentication failed 🔐") {
 		t.Fatal("the archive mangled non-ASCII content")
 	}
 	if !strings.Contains(body, "auth/jwt.go:42") {

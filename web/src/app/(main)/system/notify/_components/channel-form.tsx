@@ -9,31 +9,32 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { NotificationFilter } from "@/lib/types";
 
-// asText / inputType 是本文件内的取值辅助（与控件渲染强相关），不放在 channel-fields。
+// asText / inputType are local helpers tied to control rendering, so they stay out of channel-fields.
 import { type FieldDef, type FieldKind, SEVERITY_OPTIONS } from "./channel-fields";
 
-// asText 把任意配置值渲染成输入框可用的字符串。
-// config 来自 JSON，值可能是 string / number / boolean / array / null，
-// 这里只关心「能不能塞进文本框」，具体序列化由 buildConfig 负责。
+// asText turns any config value into a string an input can display.
+// Config comes from JSON, so values may be string / number / boolean / array / null.
+// This only cares whether the value can go in a text box; buildConfig does the serialization.
 function asText(v: unknown): string {
   if (typeof v === "string") return v;
   if (v === null || v === undefined) return "";
   return String(v);
 }
 
-// inputType 把字段类型映射到 input 的 type 属性。
+// inputType maps a field kind to an input type attribute.
 function inputType(kind: FieldKind): "text" | "password" | "number" {
   if (kind === "password") return "password";
   if (kind === "number") return "number";
   return "text";
 }
 
-// ConfigField 按字段定义渲染对应的控件。
+// ConfigField renders the control for a field definition.
 //
-// 掩码字段的处理是这里唯一的讲究：输入框**不显示**掩码值本身，只显示一行
-// 「已保存」提示。这样界面上就只有一个规则——框里有字就是用户填的，
-// 空框就是空值。若把 "__masked__:…abc123" 塞进输入框，用户会以为那是要自己
-// 删掉的占位文本，反而更容易误清凭据。
+// Masked fields are the one special case: the input does not show the mask
+// itself, only a "Saved" hint. The rule on screen is simple — text in the box
+// is what the user typed, and an empty box is an empty value. Putting
+// "__masked__:…abc123" in the input looks like placeholder text the user
+// should delete, which makes it easy to wipe a credential by accident.
 export function ConfigField({
   def,
   value,
@@ -47,7 +48,7 @@ export function ConfigField({
 }) {
   const id = `n-cfg-${def.key}`;
   const raw = asText(value);
-  // 后端回显的掩码值：形如 "__masked__:…abc123"，尾部是原值的可辨识片段。
+  // Mask echoed by the backend, shaped like "__masked__:…abc123". The tail is a recognizable fragment of the original value.
   const masked = isSecret && raw.startsWith("__masked__");
   const maskedTail = masked ? (raw.split("…")[1] ?? "") : "";
 
@@ -81,8 +82,8 @@ export function ConfigField({
     );
   }
 
-  // 控件按字段类型分派。用 if 链而不是嵌套三元，是因为这里要区分四种控件，
-  // 三层三元读起来已经要停下来数括号了。
+  // Dispatch the control by field kind. An if chain is clearer than nested ternaries
+  // once four controls are involved.
   function control() {
     if (def.kind === "textarea" || def.kind === "kv") {
       return (
@@ -120,7 +121,7 @@ export function ConfigField({
   const hint = masked ? (
     <p className="text-muted-foreground flex items-center gap-1 text-xs">
       <CheckIcon className="size-3" />
-      已保存{maskedTail ? `（尾号 ${maskedTail}）` : ""} · 填入新值即覆盖，清空则删除该项
+      Saved{maskedTail ? ` (ends in ${maskedTail})` : ""} · Enter a new value to replace it, or clear the field to remove it
     </p>
   ) : (
     def.help && <p className="text-muted-foreground text-xs">{def.help}</p>
@@ -135,19 +136,19 @@ export function ConfigField({
   );
 }
 
-// FilterSummary 把过滤条件摘要成一行，让卡片不用展开就能看出这个渠道推什么。
+// FilterSummary collapses a filter into one line so a card shows what the channel sends without expanding.
 export function FilterSummary({ filter }: { filter: NotificationFilter }) {
   const parts: string[] = [];
   if (filter.min_severity) {
     parts.push(SEVERITY_OPTIONS.find((o) => o.value === filter.min_severity)?.label ?? filter.min_severity);
   }
-  if (filter.vulnclass_include?.length) parts.push(`类型含 ${filter.vulnclass_include.length} 词`);
-  if (filter.vulnclass_exclude?.length) parts.push(`排除 ${filter.vulnclass_exclude.length} 词`);
-  if (filter.task_ids?.length) parts.push(`${filter.task_ids.length} 个任务`);
-  if (filter.asset_ids?.length) parts.push(`${filter.asset_ids.length} 个资产`);
-  if (filter.on_status_change) parts.push("含状态变更");
+  if (filter.vulnclass_include?.length) parts.push(`includes ${filter.vulnclass_include.length} class terms`);
+  if (filter.vulnclass_exclude?.length) parts.push(`excludes ${filter.vulnclass_exclude.length} terms`);
+  if (filter.task_ids?.length) parts.push(`${filter.task_ids.length} tasks`);
+  if (filter.asset_ids?.length) parts.push(`${filter.asset_ids.length} assets`);
+  if (filter.on_status_change) parts.push("includes status changes");
   if (parts.length === 0) {
-    return <p className="text-muted-foreground text-sm">全部漏洞</p>;
+    return <p className="text-muted-foreground text-sm">All findings</p>;
   }
   return <p className="text-muted-foreground text-sm">{parts.join(" · ")}</p>;
 }

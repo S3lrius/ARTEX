@@ -1,27 +1,27 @@
 @echo off
-rem 控制台切 UTF-8，否则本文件里的中文在 GBK 终端下是乱码。
+rem Switch the console to UTF-8; otherwise non-ASCII text in this file is garbled on a GBK terminal.
 chcp 65001 >nul 2>&1
-rem ARTEX 守护启动脚本（Windows）
+rem ARTEX supervisor (Windows)
 rem
-rem 用法：
-rem   start.bat                  前台运行（Ctrl-C 停止）
-rem   start.bat -addr :9000      额外参数原样透传给 artex
+rem Usage:
+rem   start.bat                  foreground (Ctrl-C to stop)
+rem   start.bat -addr :9000      extra arguments are passed through to artex
 rem
-rem 它只做一件事：把 artex.exe 跑起来，进程退出后按退出码决定要不要再拉起。
+rem It does one thing: run artex.exe, then decide from the exit code whether to start it again.
 rem
-rem   0      用户正常停止     -> 退出循环
-rem   75     程序请求重启     -> 立刻重跑（页面点了"一键更新"或"回滚"）
-rem   其他   崩溃             -> 退避后重跑（1->2->4…最多 60 秒）
+rem   0      clean user stop      -> leave the loop
+rem   75     program asked to restart -> rerun immediately (UI "one-click update" or "rollback")
+rem   other  crash                 -> back off and rerun (1->2->4... up to 60 seconds)
 rem
-rem 下载、SHA256 校验、换装都不在这里，全部由 artex 自己在启动时完成
-rem （selfupdate 包）。脚本保持傻瓜化，详见 start.sh 顶部的说明。
-
+rem Download, SHA256 checks, and binary swap are not done here. artex finishes them
+rem itself at startup (the selfupdate package). The script stays simple; see the top of start.sh.
+rem
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 set "BIN=artex.exe"
 if not exist "%BIN%" (
-	echo [artex] 找不到可执行文件 %BIN% 1>&2
+	echo [artex] executable not found: %BIN% 1>&2
 	exit /b 1
 )
 
@@ -34,19 +34,19 @@ set /a delay=1
 set "code=!ERRORLEVEL!"
 
 if "!code!"=="0" (
-	echo [artex] 正常退出
+	echo [artex] exited normally
 	exit /b 0
 )
 
 if "!code!"=="%RESTART_CODE%" (
-	rem 更新/回滚已就绪：重跑后 artex 会在启动时完成换装。
-	echo [artex] 请求重启（应用新版本）…
+	rem Update/rollback is staged: on the next start artex swaps the binary.
+	echo [artex] restart requested (apply new version)...
 	set /a delay=1
 	goto loop
 )
 
-echo [artex] 异常退出 ^(code=!code!^)，!delay!s 后重启 1>&2
-rem timeout 在被重定向的控制台里会失败，用 ping 兜底（延时 N 秒需要 N+1 次）。
+echo [artex] abnormal exit ^(code=!code!^), restarting in !delay!s 1>&2
+rem timeout fails when the console is redirected; fall back to ping (N seconds needs N+1 pings).
 set /a pings=!delay!+1
 ping -n !pings! 127.0.0.1 >nul 2>&1
 set /a delay=!delay!*2

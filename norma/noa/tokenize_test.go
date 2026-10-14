@@ -12,12 +12,12 @@ func TestDefaultCountTokens(t *testing.T) {
 		{"ascii exact multiple", "abcd", 1},
 		{"ascii rounds up", "abcde", 2},
 		{"ascii single", "a", 1},
-		{"cjk one per rune", "中文", 2},
-		{"cjk longer", "你好世界", 4},
+		{"cjk one per rune", "あい", 2},
+		{"cjk longer", "あいうえ", 4},
 		{"hiragana", "ひらがな", 4},
 		{"hangul", "한국어", 3},
 		// 4 CJK + 8 ASCII -> 4 + ceil(8/4) = 6
-		{"mixed", "认证方案 auth.go", 4 + 2},
+		{"mixed", "あいうえ auth.go", 4 + 2},
 	}
 	for _, c := range cases {
 		if got := DefaultCountTokens(c.in); got != c.want {
@@ -35,7 +35,7 @@ func TestDefaultCountTokensAstralPlane(t *testing.T) {
 }
 
 func TestEstimateTokensFast(t *testing.T) {
-	cases := map[string]int{"": 0, "abcd": 1, "abcde": 2, "中文测试": 1}
+	cases := map[string]int{"": 0, "abcd": 1, "abcde": 2, "あいうえ": 1}
 	for in, want := range cases {
 		if got := EstimateTokensFast(in); got != want {
 			t.Errorf("EstimateTokensFast(%q) = %d, want %d", in, got, want)
@@ -54,7 +54,7 @@ func TestCountMessageTokens(t *testing.T) {
 }
 
 func TestIsCJK(t *testing.T) {
-	for _, r := range []rune{'中', '文', 'あ', 'ア', '한'} {
+	for _, r := range []rune{'\u4E00', '\u9FFF', 'あ', 'ア', '한'} {
 		if !isCJK(r) {
 			t.Errorf("isCJK(%q) = false, want true", r)
 		}

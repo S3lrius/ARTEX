@@ -503,7 +503,7 @@ func stageTaskArchivePackageDelete(archivePath string, archiveID int64) (string,
 	staged := archivePath + fmt.Sprintf(".deleting-%d", archiveID)
 	if _, err := os.Lstat(staged); err == nil {
 		if _, originalErr := os.Lstat(archivePath); originalErr == nil {
-			return staged, false, errors.New("归档包原文件和删除暂存文件同时存在")
+			return staged, false, errors.New("archive package original and delete-staging file both exist")
 		} else if !os.IsNotExist(originalErr) {
 			return staged, false, originalErr
 		}
@@ -578,10 +578,13 @@ func writeTaskArchivePackage(path, payloadDir string, snapshot *pgdb.TaskArchive
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			// 归档格式端到端只支持普通文件与目录（解包端对其它类型直接报错），
-			// 无法还原符号链接。跳过而非整包失败：不读取链接目标(lstat，不越出目录树)，
-			// 也不写入 symlink 条目；链接指向树内时目标文件本身仍会被单独遍历归档。
-			log.Printf("[task-archive] 跳过符号链接（归档不支持，不影响其它文件）：%s", current)
+			// The archive format only supports regular files and directories end to end
+			// (the unpacker errors on any other type) and cannot restore symlinks.
+			// Skip them instead of failing the whole package: do not read the link
+			// target (lstat, stay inside the tree) and do not write a symlink entry.
+			// When the link points inside the tree, the target file is still archived
+			// on its own during the walk.
+			log.Printf("[task-archive] skipping symlink (archives do not support them; other files are unaffected): %s", current)
 			return nil
 		}
 		header, err := tar.FileInfoHeader(info, "")
