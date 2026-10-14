@@ -44,9 +44,11 @@ ENV npm_config_registry=$NPM_REGISTRY \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # Node comes from the official image above. Bookworm's apt nodejs is 18, and Playwright requires >=20.
 COPY --from=web /usr/local/bin/node /usr/local/bin/node
-COPY --from=web /usr/local/bin/npm /usr/local/bin/npm
-COPY --from=web /usr/local/bin/npx /usr/local/bin/npx
 COPY --from=web /usr/local/lib/node_modules /usr/local/lib/node_modules
+# npm and npx are symlinks in the node image. COPY would follow them and break their
+# relative require('../lib/cli.js'), so recreate the links instead.
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 # Chromium, its headless shell, and ffmpeg from the pinned Playwright image. This build does not download them.
 COPY --from=browsers /ms-playwright /ms-playwright
 # Common tools: ripgrep / curl / vim, plus a set of recon utilities (add or remove as needed).
