@@ -1415,7 +1415,7 @@ export const activity: Activity[] = [
     ts: T("2026-07-25T14:13:00Z"),
     kind: "text",
     summary:
-      "The picture changed: source, a hard-coded internal password, and Fastjson RCE form a new break-in path. Asked the goal layer to register g3 "Break out of the external network into the DMZ and establish an internal foothold", and dispatched i6 (fingerprint and CVE match) and i7 (trigger RCE). DMZ privilege escalation depends on the shell, so it is queued for the next round.",
+      "The picture changed: source, a hard-coded internal password, and Fastjson RCE form a new break-in path. Asked the goal layer to register g3 “Break out of the external network into the DMZ and establish an internal foothold”, and dispatched i6 (fingerprint and CVE match) and i7 (trigger RCE). DMZ privilege escalation depends on the shell, so it is queued for the next round.",
   },
 
   // ── Round 2 · Foothold established, turn inward (2026-07-25 20:25) ──
@@ -1432,7 +1432,7 @@ export const activity: Activity[] = [
     ts: T("2026-07-25T20:25:18Z"),
     kind: "thinking",
     summary:
-      "Against lineage: i7 returned fa4 "reverse shell www-data@dmz-web01 (10.0.20.15), on the DMZ segment". The escalation chain returned fa5 "sudo -l hits NOPASSWD python3, so root is reachable" and fa6 "the foothold's second NIC is directly on internal 10.10.10.0/24". g3's check (break into the DMZ and establish a foothold) is already met by fa4 and fa6. Confirm fa6 can reach the internal network before prove_goal.",
+      "Against lineage: i7 returned fa4 “reverse shell www-data@dmz-web01 (10.0.20.15), on the DMZ segment”. The escalation chain returned fa5 “sudo -l hits NOPASSWD python3, so root is reachable” and fa6 “the foothold's second NIC is directly on internal 10.10.10.0/24”. g3's check (break into the DMZ and establish a foothold) is already met by fa4 and fa6. Confirm fa6 can reach the internal network before prove_goal.",
   },
   {
     seq: 1202,
@@ -1461,7 +1461,7 @@ export const activity: Activity[] = [
     tool_use_id: "p2-pg",
     summary: "prove_goal(g3, evidence=fa6)",
     detail:
-      "reason: i7 RCE obtained the DMZ foothold (fa4), fa5 escalated to root, and fa6 shows the second NIC is on the internal network and can ping DC01. The check "break into the DMZ and establish an internal foothold" is met.",
+      "reason: i7 RCE obtained the DMZ foothold (fa4), fa5 escalated to root, and fa6 shows the second NIC is on the internal network and can ping DC01. The check “break into the DMZ and establish an internal foothold” is met.",
   },
   {
     seq: 1205,
@@ -1498,7 +1498,7 @@ export const activity: Activity[] = [
     ts: T("2026-07-25T20:26:20Z"),
     kind: "text",
     summary:
-      "g3 is met and the attack surface moved from the outside to the internal network. Asked to register g4 "Move laterally and take internal objective domain controller DC01", and dispatched i9 (host discovery) plus three parallel lateral intents i10, i11, and i12. Credential reuse is anchored on faCreds: the password leaked from external source is fed into internal movement.",
+      "g3 is met and the attack surface moved from the outside to the internal network. Asked to register g4 “Move laterally and take internal objective domain controller DC01”, and dispatched i9 (host discovery) plus three parallel lateral intents i10, i11, and i12. Credential reuse is anchored on faCreds: the password leaked from external source is fed into internal movement.",
   },
 
   // ── Round 3 · Review after the objective was met (2026-07-26 00:25) ──
@@ -1528,7 +1528,7 @@ export const activity: Activity[] = [
     tool: "list_findings",
     tool_use_id: "p3-lf",
     summary:
-      "F-09 "full control of domain controller DC01 / secretsdump exported every domain hash" is critical (evidence: psexec svc_deploy@10.10.10.10 plus an NTDS.dit dump). The upstream chain fa9 to fa10 to i13 is complete",
+      "F-09 “full control of domain controller DC01 / secretsdump exported every domain hash” is critical (evidence: psexec svc_deploy@10.10.10.10 plus an NTDS.dit dump). The upstream chain fa9 to fa10 to i13 is complete",
   },
   {
     seq: 1304,
@@ -1539,7 +1539,7 @@ export const activity: Activity[] = [
     tool_use_id: "p3-pg",
     summary: "prove_goal(g4, evidence=F-09)",
     detail:
-      "reason: Jenkins leaked svc_deploy (Domain Admin), psexec took DC01, and secretsdump exported every domain hash. F-09 is confirmed, so "take internal objective domain controller DC01" is met.",
+      "reason: Jenkins leaked svc_deploy (Domain Admin), psexec took DC01, and secretsdump exported every domain hash. F-09 is confirmed, so “take internal objective domain controller DC01” is met.",
   },
   {
     seq: 1305,
@@ -1556,7 +1556,7 @@ export const activity: Activity[] = [
     ts: T("2026-07-26T00:26:10Z"),
     kind: "text",
     summary:
-      "g4 is closed and the external-to-internal path is complete (external RCE, DMZ, internal network, domain controller). Checking uncovered directions: g2 "Read sensitive user data" is still one step short, but i3 (admin user API) and i5 (API IDOR) already cover it and both are running. This round has no uncovered direction that is different in kind. Restraint says zero new intents. Wait for i3 and i5.",
+      "g4 is closed and the external-to-internal path is complete (external RCE, DMZ, internal network, domain controller). Checking uncovered directions: g2 “Read sensitive user data” is still one step short, but i3 (admin user API) and i5 (API IDOR) already cover it and both are running. This round has no uncovered direction that is different in kind. Restraint says zero new intents. Wait for i3 and i5.",
   },
 
   // ── Round 4 · Admin access met, close in on g2 (2026-07-26 03:55) ──
@@ -1573,7 +1573,7 @@ export const activity: Activity[] = [
     ts: T("2026-07-26T03:55:14Z"),
     kind: "thinking",
     summary:
-      "Against recent_facts: work#2 used Acme@2021 from faCreds and got into the admin panel (i2 done), so admin access is in hand and g1's check is met. prove_goal first. Then a measured check: g2 "Read sensitive user data" only has i3 and i5 touching the API surface. They have not actually pulled bulk data, so the check fails. Do not prove_goal. Raise priority and add intents that collect the data.",
+      "Against recent_facts: work#2 used Acme@2021 from faCreds and got into the admin panel (i2 done), so admin access is in hand and g1's check is met. prove_goal first. Then a measured check: g2 “Read sensitive user data” only has i3 and i5 touching the API surface. They have not actually pulled bulk data, so the check fails. Do not prove_goal. Raise priority and add intents that collect the data.",
   },
   {
     seq: 1402,
@@ -1601,7 +1601,7 @@ export const activity: Activity[] = [
     ts: T("2026-07-26T03:55:40Z"),
     kind: "thinking",
     summary:
-      "Measured check for g2: "Read sensitive user data" means a bulk set of user records was actually obtained. graph_overview has no finding for a successful user-data export. i3 and i5 are still running and have not returned collected data, so the check fails. Do not mark it met just because the admin panel was entered. Keep dispatching intents until the gap is closed.",
+      "Measured check for g2: “Read sensitive user data” means a bulk set of user records was actually obtained. graph_overview has no finding for a successful user-data export. i3 and i5 are still running and have not returned collected data, so the check fails. Do not mark it met just because the admin panel was entered. Keep dispatching intents until the gap is closed.",
   },
   {
     seq: 1405,
@@ -3636,7 +3636,7 @@ export const conversationMessages: Record<number, Activity[]> = {
       ts: T("2026-07-25T10:00:30Z"),
       kind: "text",
       summary:
-        "Conclusion: Element-UI admin panel, no captcha, no rate limit. Order of attack: (1) the default-password list (admin/admin, admin/admin123, admin/123456), then (2) a top-1000 wordlist if those miss. I injected "default admin password test" as a high-priority intent for the worker.",
+        "Conclusion: Element-UI admin panel, no captcha, no rate limit. Order of attack: (1) the default-password list (admin/admin, admin/admin123, admin/123456), then (2) a top-1000 wordlist if those miss. I injected “default admin password test” as a high-priority intent for the worker.",
     },
     { seq: 8, worker: "user", ts: T("2026-07-26T03:40:00Z"), kind: "user", summary: "Did it work?" },
     {
@@ -3645,7 +3645,7 @@ export const conversationMessages: Record<number, Activity[]> = {
       ts: T("2026-07-26T03:40:05Z"),
       kind: "text",
       summary:
-        "Yes. admin/admin123 signed straight into the console. It is recorded as a high-severity finding and proves the goal "Obtain admin access" is met. Next is reading user data (objective 2).",
+        "Yes. admin/admin123 signed straight into the console. It is recorded as a high-severity finding and proves the goal “Obtain admin access” is met. Next is reading user data (objective 2).",
     },
   ],
   2: [

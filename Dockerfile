@@ -27,6 +27,8 @@ ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=$GOPROXY
 WORKDIR /src
 COPY go.mod go.sum ./
+# go.mod replaces norma with ./norma, so its module files must be present before download.
+COPY norma/go.mod norma/go.sum ./norma/
 RUN go mod download
 COPY . .
 # Copy the frontend static output from the web stage (.dockerignore already excludes the host dist, so they do not collide)
