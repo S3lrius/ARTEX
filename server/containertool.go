@@ -52,8 +52,13 @@ func (s *Server) runContainerTool(ctx context.Context, execRaw json.RawMessage, 
 	if pids <= 0 {
 		pids = 256
 	}
+	// The rootless daemon is Podman (behind a Docker-compatible socket). Podman's compat
+	// API rejects the attach/hijack an attached `docker run` needs ("unable to upgrade to
+	// tcp, received 409"), so run detached and collect the result: start the container,
+	// wait for it to exit, print its combined logs, remove it, and exit with its code -
+	// the same observable output as an attached run, but portable across daemons.
 	var b strings.Builder
-	b.WriteString("docker run --rm --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges")
+	b.WriteString("cid=$(docker run -d --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges")
 	fmt.Fprintf(&b, " --pids-limit %d", pids)
 	if spec.Network != "" {
 		fmt.Fprintf(&b, " --network %s", shellQuote(spec.Network))
@@ -69,6 +74,11 @@ func (s *Server) runContainerTool(ctx context.Context, execRaw json.RawMessage, 
 		b.WriteString(" ")
 		b.WriteString(renderTemplate(spec.Args, params, shellQuote))
 	}
+	// Close the run subshell, then wait for exit, emit the logs, remove the container, and
+	// surface its exit code. (If the context deadline kills this command first, the detached
+	// container can outlive it; --pids-limit and the read-only/no-cap profile bound the blast
+	// radius, and a leaked one is reaped by the next `docker rm`/daemon restart.)
+	b.WriteString(`); test -n "$cid" || exit 1; code=$(docker wait "$cid" 2>/dev/null); docker logs "$cid" 2>&1; docker rm -f "$cid" >/dev/null 2>&1; exit "${code:-1}"`)
 	bashIn, _ := json.Marshal(map[string]any{"command": b.String()})
 	if spec.TimeoutMs > 0 {
 		var cancel context.CancelFunc
