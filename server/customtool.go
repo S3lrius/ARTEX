@@ -59,8 +59,8 @@ func (s *Server) pgCreateCustomTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "key must start with a lowercase letter and contain only lowercase letters, digits, or underscores")
 		return
 	}
-	if req.Kind != "command" && req.Kind != "script" && req.Kind != "http" && req.Kind != "shell" {
-		writeErr(w, 400, "kind must be command, script, http, or shell")
+	if req.Kind != "command" && req.Kind != "script" && req.Kind != "http" && req.Kind != "shell" && req.Kind != "container" {
+		writeErr(w, 400, "kind must be command, script, http, shell, or container")
 		return
 	}
 	if req.Kind == "http" && !hasSchemaProps(req.Schema) {
@@ -101,8 +101,8 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if req.Kind != "command" && req.Kind != "script" && req.Kind != "http" && req.Kind != "shell" {
-		writeErr(w, 400, "kind must be command, script, http, or shell")
+	if req.Kind != "command" && req.Kind != "script" && req.Kind != "http" && req.Kind != "shell" && req.Kind != "container" {
+		writeErr(w, 400, "kind must be command, script, http, shell, or container")
 		return
 	}
 	if req.Kind == "http" && !hasSchemaProps(req.Schema) {
@@ -170,6 +170,8 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 		res, _ = s.runScriptTool(ctx, "test", req.Exec, params, tc)
 	case "http":
 		res, _ = s.runHTTPTool(ctx, req.Exec, params, tc)
+	case "container":
+		res, _ = s.runContainerTool(ctx, req.Exec, params, tc)
 	case "shell":
 		writeErr(w, 400, "a shell tool declares the bash environment and has nothing to execute")
 		return
@@ -282,6 +284,8 @@ func (s *Server) buildCustomTool(t *db.Tool) actool.CoreTool {
 			return s.runScriptTool(ctx, key, execRaw, params, tc)
 		case "http":
 			return s.runHTTPTool(ctx, execRaw, params, tc)
+		case "container":
+			return s.runContainerTool(ctx, execRaw, params, tc)
 		default:
 			return actool.Errorf("unknown custom tool type: " + kind), nil
 		}

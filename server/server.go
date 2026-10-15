@@ -865,6 +865,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tools", s.pgListTools)
 	mux.HandleFunc("PUT /api/tools/{key}", s.pgUpdateTool)
 	mux.HandleFunc("POST /api/tools/custom", s.pgCreateCustomTool)
+	mux.HandleFunc("POST /api/tools/build", s.pgBuildContainerTool)
 	mux.HandleFunc("POST /api/tools/custom/test", s.pgTestCustomTool)
 	mux.HandleFunc("PUT /api/tools/custom/{key}", s.pgUpdateCustomTool)
 	mux.HandleFunc("DELETE /api/tools/custom/{key}", s.pgDeleteCustomTool)
