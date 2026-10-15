@@ -1098,6 +1098,66 @@ export const api = {
     t: Pick<Tool, "description" | "schema" | "agents" | "enabled" | "kind" | "exec" | "deferred">,
   ) => put<{ ok: boolean }>(`/tools/custom/${key}`, t),
   deleteCustomTool: (key: string) => del<{ deleted: string }>(`/tools/custom/${key}`),
+  // Build a kind=container tool from a Dockerfile. Human-only (a plain POST handler, not a
+  // CoreTool the agent can reach). The response is an SSE stream of the docker build log;
+  // on success the backend also registers the tool. Streams via fetch (not EventSource,
+  // which is GET-only) and parses the event/data blocks, un-escaping the \n the server packs
+  // each data line into.
+  buildContainerTool: async (
+    req: {
+      key: string; description: string; dockerfile: string; args?: string; agents?: string[];
+      schema?: unknown; network?: string; cpus?: string; memory?: string; pids_limit?: number; timeout_ms?: number;
+    },
+    on: { log: (line: string) => void; ok: (tag: string) => void; err: (msg: string) => void },
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const token = getToken();
+    let r: Response;
+    try {
+      r = await fetch(`/api/tools/build`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify(req),
+        signal,
+      });
+    } catch (e) {
+      on.err(e instanceof Error ? e.message : "network error");
+      return;
+    }
+    if (!r.ok || !r.body) {
+      let msg = `build request failed (${r.status})`;
+      try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* keep default */ }
+      on.err(msg);
+      return;
+    }
+    const dispatch = (block: string) => {
+      let event = "message";
+      let data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).replace(/^ /, "");
+      }
+      data = data.replace(/\\n/g, "\n");
+      if (event === "build-log") on.log(data);
+      else if (event === "build-ok") on.ok(data);
+      else if (event === "build-err") on.err(data);
+    };
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        if (block.trim()) dispatch(block);
+      }
+    }
+    if (buf.trim()) dispatch(buf);
+  },
   testCustomTool: (body: { kind: string; exec: Record<string, unknown>; params: Record<string, unknown> }) =>
     post<{ output: string; is_error: boolean }>("/tools/custom/test", body),
   detectPython: () => post<{ python_interpreter: string }>("/settings/python/detect", {}),
