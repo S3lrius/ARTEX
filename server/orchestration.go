@@ -74,6 +74,7 @@ func (s *Server) orchestrationTools() []actool.CoreTool {
 		s.toolUpdateFindingReport(),
 		s.toolGetFindingTraffic(),
 		s.toolBindFindingTraffic(),
+		s.toolSuggestTask(),
 	}
 }
 
@@ -472,6 +473,10 @@ func (s *Server) seedOrchestrationTools() {
 		bindings := autoAgents
 		if t.Name() == "bind_finding_traffic" {
 			bindings = json.RawMessage(`["reporter"]`)
+		}
+		if t.Name() == "suggest_task" {
+			// Recon proposes follow-ups, so the worker and planner get it by default.
+			bindings = json.RawMessage(`["worker","planner"]`)
 		}
 		_ = s.m.PG().SeedTool(t.Name(), t.Description(), schema, bindings)
 	}

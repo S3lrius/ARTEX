@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { PlayIcon, PlusIcon, RotateCcwIcon, SaveIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { LayersIcon, PlayIcon, PlusIcon, RotateCcwIcon, SaveIcon, SearchIcon, Trash2Icon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -369,6 +369,7 @@ export default function ToolsPage() {
   const [captureOn, setCaptureOn] = React.useState(false);
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
   const [customEdit, setCustomEdit] = React.useState<Tool | "new" | null>(null);
+  const [containerBuild, setContainerBuild] = React.useState(false);
 
   const reload = React.useCallback(() => {
     api.tools().then(setTools).catch(() => setTools([]));
@@ -456,13 +457,18 @@ export default function ToolsPage() {
                   <CardTitle>Custom tools</CardTitle>
                   <CardDescription>
                     {query.trim()
-                      ? `shell, command, script, and http. ${customTools.length} / ${allCustomCount} match. Click a card to edit.`
-                      : `shell (bash declaration), command (shell template), script (Python), and http (API). ${allCustomCount} total. Click a card to edit.`}
+                      ? `shell, command, script, http, and container. ${customTools.length} / ${allCustomCount} match. Click a card to edit.`
+                      : `shell (bash declaration), command (shell template), script (Python), http (API), and container (built from a Dockerfile). ${allCustomCount} total. Click a card to edit.`}
                   </CardDescription>
                 </div>
-                <Button size="sm" onClick={() => setCustomEdit("new")}>
-                  <PlusIcon /> New custom tool
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setContainerBuild(true)}>
+                    <LayersIcon /> Build from Dockerfile
+                  </Button>
+                  <Button size="sm" onClick={() => setCustomEdit("new")}>
+                    <PlusIcon /> New custom tool
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -512,6 +518,16 @@ export default function ToolsPage() {
         onClose={() => setCustomEdit(null)}
         onSaved={() => {
           setCustomEdit(null);
+          reload();
+        }}
+      />
+
+      <ContainerToolDialog
+        open={containerBuild}
+        agents={agents}
+        onClose={() => setContainerBuild(false)}
+        onBuilt={() => {
+          setContainerBuild(false);
           reload();
         }}
       />
@@ -836,6 +852,178 @@ function CustomToolDialog({
               <Trash2Icon /> Delete
             </Button>
           )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ---- Container tool builder (human-only: build a tool from a Dockerfile) ----
+
+function ContainerToolDialog({
+  open,
+  agents,
+  onClose,
+  onBuilt,
+}: {
+  open: boolean;
+  agents: Agent[];
+  onClose: () => void;
+  onBuilt: () => void;
+}) {
+  const [key, setKey] = React.useState("");
+  const [description, setDescription] = React.useState("");
+  const [dockerfile, setDockerfile] = React.useState("");
+  const [args, setArgs] = React.useState("");
+  const [schemaText, setSchemaText] = React.useState("");
+  const [bound, setBound] = React.useState<string[]>([]);
+  const [network, setNetwork] = React.useState("");
+  const [cpus, setCpus] = React.useState("");
+  const [memory, setMemory] = React.useState("");
+  const [pidsLimit, setPidsLimit] = React.useState("");
+  const [timeoutMs, setTimeoutMs] = React.useState("");
+  const [building, setBuilding] = React.useState(false);
+  const [log, setLog] = React.useState<string[]>([]);
+  const logRef = React.useRef<HTMLPreElement | null>(null);
+
+  // Reset the form each time the sheet is (re)opened.
+  React.useEffect(() => {
+    if (open) {
+      setKey(""); setDescription(""); setDockerfile(""); setArgs(""); setSchemaText("");
+      setBound([]); setNetwork(""); setCpus(""); setMemory(""); setPidsLimit(""); setTimeoutMs("");
+      setBuilding(false); setLog([]);
+    }
+  }, [open]);
+
+  React.useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [log]);
+
+  const toggleAgent = (k: string) =>
+    setBound((b) => (b.includes(k) ? b.filter((x) => x !== k) : [...b, k]));
+  const append = (line: string) => setLog((l) => [...l, line]);
+
+  const build = async () => {
+    const k = key.trim();
+    if (!/^[a-z][a-z0-9_]*$/.test(k)) {
+      toast.error("Key must start with a lowercase letter and contain only lowercase letters, digits, or underscores");
+      return;
+    }
+    if (!dockerfile.trim()) {
+      toast.error("Dockerfile is empty");
+      return;
+    }
+    let schema: unknown = undefined;
+    if (schemaText.trim()) {
+      try { schema = JSON.parse(schemaText); } catch { toast.error("Parameter schema is not valid JSON"); return; }
+    }
+    setBuilding(true);
+    setLog([`$ docker build -t artex-tool/${k} …`]);
+    await api.buildContainerTool(
+      {
+        key: k,
+        description: description.trim(),
+        dockerfile,
+        args: args.trim() || undefined,
+        agents: bound,
+        schema,
+        network: network.trim() || undefined,
+        cpus: cpus.trim() || undefined,
+        memory: memory.trim() || undefined,
+        pids_limit: pidsLimit.trim() ? Number(pidsLimit) : undefined,
+        timeout_ms: timeoutMs.trim() ? Number(timeoutMs) : undefined,
+      },
+      {
+        log: (line) => append(line),
+        ok: (tag) => { append(`✓ built and registered ${tag}`); toast.success(`Built ${k}`); setBuilding(false); onBuilt(); },
+        err: (msg) => { append(`✗ ${msg}`); toast.error(msg); setBuilding(false); },
+      },
+    );
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={(o) => !o && !building && onClose()}>
+      <SheetContent
+        side="right"
+        className="flex flex-col gap-0 p-0 data-[side=right]:w-[45vw] data-[side=right]:sm:max-w-[45vw] data-[side=right]:min-w-[480px]"
+      >
+        <SheetHeader className="px-4">
+          <SheetTitle>Build a container tool</SheetTitle>
+          <SheetDescription>
+            Builds an image from your Dockerfile and registers a <span className="font-mono">container</span> tool the agents can call. It runs locked down (read-only, all capabilities dropped, no new privileges) on an isolated rootless daemon, and its egress matches the host. Building is a manual action — agents cannot build or register container tools.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Key</Label>
+            <Input className="font-mono" placeholder="e.g. nuclei_scan" value={key} disabled={building}
+              onChange={(e) => setKey(e.target.value)} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Description (sent to the model)</Label>
+            <Textarea rows={2} value={description} disabled={building} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Dockerfile</Label>
+            <Textarea className="font-mono text-xs" rows={8} value={dockerfile} disabled={building}
+              placeholder={'FROM alpine:3.20\nRUN apk add --no-cache nmap\nENTRYPOINT ["nmap"]'}
+              onChange={(e) => setDockerfile(e.target.value)} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Argument template (placeholders like {"{param}"}, appended after the image)</Label>
+            <Textarea className="font-mono text-xs" rows={2} value={args} disabled={building}
+              placeholder={"-p {ports} {target}"} onChange={(e) => setArgs(e.target.value)} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Parameter JSON Schema (leave empty to wrap {"{args}"} automatically)</Label>
+            <Textarea className="font-mono text-xs" rows={3} value={schemaText} disabled={building}
+              placeholder={'{"type":"object","properties":{"target":{"type":"string"}},"required":["target"]}'}
+              onChange={(e) => setSchemaText(e.target.value)} />
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label className="text-muted-foreground text-xs">Resource limits (optional)</Label>
+            <div className="flex flex-wrap gap-3">
+              <div className="grid gap-1.5"><Label className="text-xs">network</Label><Input className="w-32 font-mono text-xs" placeholder="(default)" value={network} disabled={building} onChange={(e) => setNetwork(e.target.value)} /></div>
+              <div className="grid gap-1.5"><Label className="text-xs">cpus</Label><Input className="w-24 font-mono text-xs" placeholder="1.0" value={cpus} disabled={building} onChange={(e) => setCpus(e.target.value)} /></div>
+              <div className="grid gap-1.5"><Label className="text-xs">memory</Label><Input className="w-24 font-mono text-xs" placeholder="512m" value={memory} disabled={building} onChange={(e) => setMemory(e.target.value)} /></div>
+              <div className="grid gap-1.5"><Label className="text-xs">pids</Label><Input type="number" className="w-20" placeholder="256" value={pidsLimit} disabled={building} onChange={(e) => setPidsLimit(e.target.value)} /></div>
+              <div className="grid gap-1.5"><Label className="text-xs">timeout ms</Label><Input type="number" className="w-28" placeholder="300000" value={timeoutMs} disabled={building} onChange={(e) => setTimeoutMs(e.target.value)} /></div>
+            </div>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label className="text-muted-foreground text-xs">Bound agents</Label>
+            <div className="flex flex-wrap gap-3">
+              {agents.map((a) => (
+                <label key={a.key} className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={bound.includes(a.key)} disabled={building} onCheckedChange={() => toggleAgent(a.key)} />
+                  {a.name}<span className="text-muted-foreground font-mono text-xs">{a.key}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-muted-foreground text-xs">If none are selected the tool binds to the worker agent.</p>
+          </div>
+
+          {log.length > 0 && (
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Build log</Label>
+              <pre ref={logRef} className="bg-muted/50 max-h-64 overflow-auto rounded-md p-3 font-mono text-xs whitespace-pre-wrap">
+                {log.join("\n")}
+              </pre>
+            </div>
+          )}
+        </div>
+
+        <Separator />
+        <div className="flex items-center gap-2 p-4">
+          <Button size="sm" onClick={build} disabled={building}>
+            <LayersIcon /> {building ? "Building…" : "Build & register"}
+          </Button>
+          <Button size="sm" variant="outline" disabled={building} onClick={onClose}>
+            Close
+          </Button>
         </div>
       </SheetContent>
     </Sheet>

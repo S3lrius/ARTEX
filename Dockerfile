@@ -59,6 +59,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates ripgrep curl wget vim git jq unzip libatomic1 \
       dnsutils iputils-ping netcat-openbsd inetutils-telnet whois nmap \
     && rm -rf /var/lib/apt/lists/*
+# Docker CLI (client only), pinned + sha256-verified. Container tools talk to an
+# external, unprivileged daemon via DOCKER_HOST (set at deploy time); no daemon here.
+ARG DOCKER_CLI_VERSION=27.5.1
+RUN curl -fsSL -o /tmp/docker.tgz \
+      "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_CLI_VERSION}.tgz" \
+ && echo "4f798b3ee1e0140eab5bf30b0edc4e84f4cdb53255a429dc3bbae9524845d640  /tmp/docker.tgz" | sha256sum -c - \
+ && tar -xzf /tmp/docker.tgz -C /tmp docker/docker \
+ && mv /tmp/docker/docker /usr/local/bin/docker \
+ && chmod +x /usr/local/bin/docker \
+ && rm -rf /tmp/docker /tmp/docker.tgz
 # Preinstall pinned Playwright packages so runtime does not npx-download them.
 # Versions checked 2026-10-14 against the public compromised-package list; none of these are on it.
 # --ignore-scripts skips package lifecycle hooks. install-deps adds OS libraries only.
