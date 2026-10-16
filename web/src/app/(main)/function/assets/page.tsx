@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import { useRouter } from "next/navigation";
+
 import {
   BuildingIcon,
   ChevronLeftIcon,
@@ -13,6 +15,7 @@ import {
   type LucideIcon,
   NetworkIcon,
   RefreshCwIcon,
+  SendIcon,
   SmartphoneIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -44,6 +47,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -58,9 +69,11 @@ import {
 } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { assetSeed, buildSeedQuery } from "@/lib/asset-task-seed";
 import { parseCompanyScopeText } from "@/lib/company-scope";
-import type { Asset, Company, CompanyScopeRule } from "@/lib/types";
+import type { Asset, Company, CompanyScopeRule, TaskTemplate } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const METHOD_COLOR: Record<string, string> = {
@@ -95,6 +108,73 @@ function statusTone(code: number) {
   return "text-muted-foreground";
 }
 
+// SendToTaskMenu: per-row action that sends one asset into a pre-filled New
+// Task. It derives the asset's exact target + allow-rule kind via assetSeed;
+// an asset with no usable identity for its type gets a disabled trigger. Picking
+// a template navigates to the New Task sheet seeded through the deep-link — no
+// scan fires here; the user still reviews and clicks Create.
+function SendToTaskMenu({ asset, templates }: { asset: Asset; templates: TaskTemplate[] }) {
+  const router = useRouter();
+  const seed = assetSeed(asset);
+
+  if (!seed) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* span wrapper so the tooltip still fires over a disabled button */}
+            <span className="inline-flex">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground"
+                disabled
+                aria-label="No testable target on this asset"
+              >
+                <SendIcon className="size-3.5" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>No testable target on this asset</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground hover:text-foreground"
+          aria-label={`Send ${seed.target} to a new task`}
+        >
+          <SendIcon className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuLabel className="truncate font-mono text-[11px]" title={seed.target}>
+          {seed.target}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {templates.length === 0 ? (
+          <DropdownMenuItem disabled>No templates</DropdownMenuItem>
+        ) : (
+          templates.map((t) => (
+            <DropdownMenuItem
+              key={t.id}
+              onSelect={() => router.push(`/function/tasks?${buildSeedQuery(t.id, asset.id, seed)}`)}
+            >
+              {t.name}
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 const PAGE_SIZES = [25, 50, 100, 200];
 
 const TABS: { key: string; label: string; icon: LucideIcon }[] = [
@@ -111,6 +191,7 @@ export default function AssetsPage() {
   const [rows, setRows] = React.useState<Asset[]>([]);
   const [total, setTotal] = React.useState(0);
   const [companies, setCompanies] = React.useState<Company[]>([]);
+  const [templates, setTemplates] = React.useState<TaskTemplate[]>([]);
   const [counts, setCounts] = React.useState<Record<string, number>>({});
   const [tab, setTab] = React.useState("company");
   const [query, setQuery] = React.useState("");
@@ -147,6 +228,12 @@ export default function AssetsPage() {
       .then(setCounts)
       .catch(() => {
         /* Keep the last successful counters on a transient failure. */
+      });
+    api
+      .taskTemplates()
+      .then(setTemplates)
+      .catch(() => {
+        /* Keep the last successful template list; the row menu degrades to "No templates". */
       });
   }, []);
 
@@ -441,16 +528,19 @@ export default function AssetsPage() {
                 <TableCell className="text-xs">
                   {companyName(a.company_id) || <span className="text-muted-foreground">Unassigned</span>}
                 </TableCell>
-                <TableCell className="w-8 pl-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => openDelete([a.id])}
-                    aria-label={`Delete asset ${a.domain || a.id}`}
-                  >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
+                <TableCell className="w-16 pl-0">
+                  <div className="flex items-center justify-end gap-1">
+                    <SendToTaskMenu asset={a} templates={templates} />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => openDelete([a.id])}
+                      aria-label={`Delete asset ${a.domain || a.id}`}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -488,16 +578,19 @@ export default function AssetsPage() {
                     mono
                   />
                 </TableCell>
-                <TableCell className="w-8 pl-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => openDelete([a.id])}
-                    aria-label={`Delete asset ${a.ip || a.id}`}
-                  >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
+                <TableCell className="w-16 pl-0">
+                  <div className="flex items-center justify-end gap-1">
+                    <SendToTaskMenu asset={a} templates={templates} />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => openDelete([a.id])}
+                      aria-label={`Delete asset ${a.ip || a.id}`}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -530,16 +623,19 @@ export default function AssetsPage() {
                 <TableCell className="max-w-xs truncate font-mono text-xs">
                   {(Array.isArray(a.record_value) ? a.record_value.join(", ") : a.record_value) || "—"}
                 </TableCell>
-                <TableCell className="w-8 pl-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => openDelete([a.id])}
-                    aria-label={`Delete asset ${a.domain || a.id}`}
-                  >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
+                <TableCell className="w-16 pl-0">
+                  <div className="flex items-center justify-end gap-1">
+                    <SendToTaskMenu asset={a} templates={templates} />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => openDelete([a.id])}
+                      aria-label={`Delete asset ${a.domain || a.id}`}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -717,16 +813,19 @@ export default function AssetsPage() {
                     mono
                   />
                 </TableCell>
-                <TableCell className="w-8 pl-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => openDelete([a.id])}
-                    aria-label={`Delete asset ${a.url || a.id}`}
-                  >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
+                <TableCell className="w-16 pl-0">
+                  <div className="flex items-center justify-end gap-1">
+                    <SendToTaskMenu asset={a} templates={templates} />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => openDelete([a.id])}
+                      aria-label={`Delete asset ${a.url || a.id}`}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -739,8 +838,8 @@ export default function AssetsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete assets</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes <span className="font-semibold tabular-nums">{deleteIds.length}</span>{" "}
-              assets. It cannot be undone.
+              This permanently deletes <span className="font-semibold tabular-nums">{deleteIds.length}</span> assets. It
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -785,7 +884,9 @@ export default function AssetsPage() {
                   />
                   <span className="text-sm leading-snug">
                     Also delete every asset under this company
-                    <span className="block text-xs text-muted-foreground">Leave this off to keep the assets and only clear the company link</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Leave this off to keep the assets and only clear the company link
+                    </span>
                   </span>
                 </label>
               </div>
@@ -1022,7 +1123,10 @@ function CompanyDialog({ onSaved }: { onSaved: () => void }) {
       <SheetContent className="w-full! max-w-none! gap-0 p-0 sm:w-[520px]! sm:max-w-[520px]!">
         <SheetHeader className="border-b p-6">
           <SheetTitle>New company</SheetTitle>
-          <SheetDescription>Set the company and its asset scope. Keywords are only a hint for the agent. They do not claim assets on their own.</SheetDescription>
+          <SheetDescription>
+            Set the company and its asset scope. Keywords are only a hint for the agent. They do not claim assets on
+            their own.
+          </SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto p-6">
           <FieldGroup>
@@ -1101,7 +1205,8 @@ function EditScopeDialog({ company, onSaved }: { company: Company; onSaved: () =
         <DialogHeader>
           <DialogTitle>Edit asset scope · {company.name}</DialogTitle>
           <DialogDescription>
-            Saving replaces the entire scope. ICP filings match assets exactly. Company keywords are only a hint for the agent.
+            Saving replaces the entire scope. ICP filings match assets exactly. Company keywords are only a hint for the
+            agent.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup className="py-2">
@@ -1183,7 +1288,10 @@ function AppendScopeDialog({ company, onSaved }: { company: Company; onSaved: ()
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Append asset scope · {company.name}</DialogTitle>
-          <DialogDescription>New entries are added to the current scope. ICP filings match assets exactly. Company keywords are only a hint for the agent.</DialogDescription>
+          <DialogDescription>
+            New entries are added to the current scope. ICP filings match assets exactly. Company keywords are only a
+            hint for the agent.
+          </DialogDescription>
         </DialogHeader>
         <FieldGroup className="py-2">
           <ScopeTextEditor

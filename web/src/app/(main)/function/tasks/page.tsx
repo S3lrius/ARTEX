@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   DndContext,
@@ -119,6 +120,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { buildAllowRule, isAssetSeedKind, SEED_PARAM, substituteTarget } from "@/lib/asset-task-seed";
 import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.client";
 import { type SortDirection, useStoredSortPreference } from "@/lib/sort-preference";
 import type {
@@ -210,7 +212,8 @@ function deleteDetails(result: DeleteCounts): string[] {
   if (result.traffic_deleted > 0) details.push(`${result.traffic_deleted} traffic records deleted`);
   if (result.files_deleted) details.push("task files deleted");
   if (result.findings_deleted > 0) details.push(`${result.findings_deleted} findings deleted`);
-  if (result.llm_records_deleted > 0) details.push(`${result.llm_records_deleted} LLM request/response records deleted`);
+  if (result.llm_records_deleted > 0)
+    details.push(`${result.llm_records_deleted} LLM request/response records deleted`);
   return details;
 }
 
@@ -302,7 +305,17 @@ function compareTasks(left: Task, right: Task, field: TaskSortField, direction: 
   return -compareTaskIDs(left.id, right.id);
 }
 
+// useSearchParams (read inside CreateTaskSheet for the asset-seed deep-link)
+// must sit under a Suspense boundary for static export — see TaskDetailPage.
 export default function TasksPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <TasksPageInner />
+    </React.Suspense>
+  );
+}
+
+function TasksPageInner() {
   const [activeTab, setActiveTab] = React.useState("current");
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [categories, setCategories] = React.useState<TaskCategory[]>([]);
@@ -1093,7 +1106,9 @@ function ConcurrencySettingsDialog() {
     setSaving(true);
     try {
       await api.setSettings({ task_concurrency_enabled: enabled, task_concurrency_limit: nextLimit });
-      toast.success(enabled ? `Concurrency limit on: at most ${nextLimit} tasks at once` : "Task concurrency limit off");
+      toast.success(
+        enabled ? `Concurrency limit on: at most ${nextLimit} tasks at once` : "Task concurrency limit off",
+      );
       setOpen(false);
     } catch (error) {
       toast.error(`Couldn't save: ${(error as Error).message}`);
@@ -1113,7 +1128,8 @@ function ConcurrencySettingsDialog() {
         <DialogHeader>
           <DialogTitle>Task concurrency limit</DialogTitle>
           <DialogDescription>
-            Cap how many tasks run at once. Past the limit, new tasks queue in creation order and start when a slot opens.
+            Cap how many tasks run at once. Past the limit, new tasks queue in creation order and start when a slot
+            opens.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-5 py-2">
@@ -1223,9 +1239,7 @@ const TaskRow = React.memo(function TaskRow({
           const f = task.findings;
           const total = f ? f.critical + f.high + f.medium + f.low : 0;
           if (!f || total === 0) return <span className="text-muted-foreground">0</span>;
-          const seg = (n: number, cls: string) => (
-            <span className={n > 0 ? cls : "text-muted-foreground"}>{n}</span>
-          );
+          const seg = (n: number, cls: string) => <span className={n > 0 ? cls : "text-muted-foreground"}>{n}</span>;
           return (
             <span className="font-medium whitespace-nowrap" title="Critical / High / Medium / Low">
               {seg(f.critical, "text-rose-600 dark:text-rose-400")}
@@ -1491,7 +1505,8 @@ function ArchiveConfirmDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{count === 1 ? "Archive task" : `Archive ${count} tasks`}</AlertDialogTitle>
           <AlertDialogDescription className="[overflow-wrap:anywhere]">
-            Archiving stops scheduling and packs the graph, LLM history, files, and task-only assets and traffic into local cold storage. Restore it later from Archived.
+            Archiving stops scheduling and packs the graph, LLM history, files, and task-only assets and traffic into
+            local cold storage. Restore it later from Archived.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1618,7 +1633,8 @@ function ArchiveDeleteDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Permanently delete {archives.length} task archives?</AlertDialogTitle>
           <AlertDialogDescription>
-            This permanently deletes about {formatArchiveBytes(bytes)} of archive packages and {rows.toLocaleString()} related data snapshots. It cannot be undone.
+            This permanently deletes about {formatArchiveBytes(bytes)} of archive packages and {rows.toLocaleString()}{" "}
+            related data snapshots. It cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1982,7 +1998,12 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
                             archives={[archive]}
                             onConfirm={() => deleteMany([archive])}
                             trigger={
-                              <Button size="icon" variant="ghost" aria-label="Delete archive permanently" title="Delete permanently">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label="Delete archive permanently"
+                                title="Delete permanently"
+                              >
                                 <Trash2Icon />
                               </Button>
                             }
@@ -2075,7 +2096,9 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-all-${idPrefix}`}>Delete all</FieldLabel>
-            <FieldDescription>Select every related item below: assets, traffic, files, findings, and LLM request/response records.</FieldDescription>
+            <FieldDescription>
+              Select every related item below: assets, traffic, files, findings, and LLM request/response records.
+            </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
@@ -2086,7 +2109,9 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-assets-${idPrefix}`}>Related assets</FieldLabel>
-            <FieldDescription>Delete assets that belong only to this task. Shared assets are only unlinked from it.</FieldDescription>
+            <FieldDescription>
+              Delete assets that belong only to this task. Shared assets are only unlinked from it.
+            </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
@@ -2097,7 +2122,10 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-traffic-${idPrefix}`}>Related traffic</FieldLabel>
-            <FieldDescription>Delete traffic by the exact host of a related asset. Traffic for a host still used by another task is kept.</FieldDescription>
+            <FieldDescription>
+              Delete traffic by the exact host of a related asset. Traffic for a host still used by another task is
+              kept.
+            </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
@@ -2108,7 +2136,9 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-files-${idPrefix}`}>Task files</FieldLabel>
-            <FieldDescription>Delete uploads, command output, and other files in this task's working directory.</FieldDescription>
+            <FieldDescription>
+              Delete uploads, command output, and other files in this task's working directory.
+            </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
@@ -2130,7 +2160,9 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-llm-records-${idPrefix}`}>LLM request/response records</FieldLabel>
-            <FieldDescription>Permanently delete this task's recorded LLM requests, responses, tokens, and error details.</FieldDescription>
+            <FieldDescription>
+              Permanently delete this task's recorded LLM requests, responses, tokens, and error details.
+            </FieldDescription>
           </FieldContent>
         </Field>
       </FieldGroup>
@@ -2245,7 +2277,9 @@ function MoveTasksCategoryDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Change category for {count} selected tasks</DialogTitle>
-          <DialogDescription>The category applies to every selected task. Uncategorized removes them from their current category.</DialogDescription>
+          <DialogDescription>
+            The category applies to every selected task. Uncategorized removes them from their current category.
+          </DialogDescription>
         </DialogHeader>
         <Field>
           <FieldLabel htmlFor="bulk-category">Category</FieldLabel>
@@ -2264,7 +2298,9 @@ function MoveTasksCategoryDialog({
               </SelectGroup>
             </SelectContent>
           </Select>
-          {categories.length === 0 && <FieldDescription>No categories yet. Create one in Manage categories.</FieldDescription>}
+          {categories.length === 0 && (
+            <FieldDescription>No categories yet. Create one in Manage categories.</FieldDescription>
+          )}
         </Field>
         <DialogFooter>
           <DialogClose asChild>
@@ -2330,7 +2366,8 @@ function BulkDeleteTasksDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete {ids.length} selected tasks?</AlertDialogTitle>
           <AlertDialogDescription>
-            Their run history and exploration will be permanently deleted. The cleanup options below apply to every selected task.
+            Their run history and exploration will be permanently deleted. The cleanup options below apply to every
+            selected task.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="text-muted-foreground flex flex-wrap gap-1 text-xs">
@@ -2620,7 +2657,9 @@ function CompanyPicker({
               <ComboboxItem key={companyID} value={companyID}>
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate font-medium">{company?.name ?? `Company #${companyID}`}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      {company?.name ?? `Company #${companyID}`}
+                    </span>
                     <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
                       {company?.asset_count ?? 0} assets
                     </span>
@@ -2904,7 +2943,10 @@ function CategoryManagementSheet({
         <SheetContent className="grid h-full w-full! max-w-none! grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:w-[48rem]! sm:max-w-[48rem]!">
           <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Task categories</SheetTitle>
-            <SheetDescription>Categories are for filtering and archives. Editing one does not change how a task runs. Deleting one moves its tasks to Uncategorized.</SheetDescription>
+            <SheetDescription>
+              Categories are for filtering and archives. Editing one does not change how a task runs. Deleting one moves
+              its tasks to Uncategorized.
+            </SheetDescription>
           </SheetHeader>
           <DndContext
             sensors={sensors}
@@ -2979,7 +3021,9 @@ function CategoryManagementSheet({
                       {visibleTasks.length === 0 ? (
                         <Empty className="min-h-36 border">
                           <EmptyHeader>
-                            <EmptyTitle>{selectedCategory ? "No tasks in this category" : "No uncategorized tasks"}</EmptyTitle>
+                            <EmptyTitle>
+                              {selectedCategory ? "No tasks in this category" : "No uncategorized tasks"}
+                            </EmptyTitle>
                             <EmptyDescription>Tasks show up here once they are assigned.</EmptyDescription>
                           </EmptyHeader>
                         </Empty>
@@ -3036,7 +3080,8 @@ function CategoryManagementSheet({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete category "{selectedCategory?.name || "Untitled category"}"?</AlertDialogTitle>
             <AlertDialogDescription>
-              Deleting this category moves its {selectedCategory?.task_count ?? 0} tasks to Uncategorized. Task data is kept.
+              Deleting this category moves its {selectedCategory?.task_count ?? 0} tasks to Uncategorized. Task data is
+              kept.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -3094,6 +3139,67 @@ function CreateTaskSheet({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const sheetContentRef = React.useRef<HTMLDivElement>(null);
 
+  // ---- asset-seed deep-link (from the Assets "Send to task" action) ----
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // The asset to attach as this task's sole target once it is created, plus a
+  // short provenance note. Non-null only when the sheet was opened via a seed
+  // link; cleared on create and on close so a later manual task never inherits it.
+  const [pendingAssetId, setPendingAssetId] = React.useState<number | null>(null);
+  const [pendingAssetSummary, setPendingAssetSummary] = React.useState("");
+  const seedHandledRef = React.useRef("");
+
+  // When navigated to with a seed link, pre-fill the form from the chosen
+  // template with the asset substituted into {{TARGET}}, append the exact allow
+  // rule that locks the task to that one asset, and open the sheet for review.
+  // The URL is stripped afterward so a refresh or back-nav doesn't re-seed.
+  React.useEffect(() => {
+    if (searchParams.get(SEED_PARAM.flag) !== "1") return;
+    const sig = searchParams.toString();
+    if (seedHandledRef.current === sig) return; // process each seed once (StrictMode double-invoke, re-renders)
+    seedHandledRef.current = sig;
+
+    const templateId = Number(searchParams.get(SEED_PARAM.template));
+    const assetId = Number(searchParams.get(SEED_PARAM.assetId));
+    const target = (searchParams.get(SEED_PARAM.target) ?? "").trim();
+    const kind = searchParams.get(SEED_PARAM.kind) ?? "";
+    const clearUrl = () => router.replace("/function/tasks");
+
+    if (!Number.isInteger(templateId) || !Number.isInteger(assetId) || !target || !isAssetSeedKind(kind)) {
+      toast.error("Couldn't read that asset link");
+      setOpen(true);
+      clearUrl();
+      return;
+    }
+
+    void (async () => {
+      try {
+        const templates = await api.taskTemplates();
+        const tpl = templates.find((t) => t.id === templateId);
+        if (!tpl) {
+          toast.error("That template no longer exists");
+          setOpen(true);
+          return;
+        }
+        setDescription(substituteTarget(tpl.description, target));
+        setGoal(substituteTarget(tpl.goal, target));
+        setCategoryID(tpl.category_id ?? undefined);
+        // Template's own rules first, then the exact single-asset allow lock.
+        setInterceptRules([...(tpl.intercept_rules ?? []), buildAllowRule(target, kind)]);
+        setSelectedTemplateID(tpl.id);
+        setUploadCount(0);
+        setPendingAssetId(assetId);
+        setPendingAssetSummary(`Added from Assets: ${target}`);
+        setOpen(true);
+      } catch (e) {
+        toast.error(`Couldn't load templates: ${(e as Error).message}`);
+        setOpen(true);
+      } finally {
+        clearUrl();
+      }
+    })();
+  }, [searchParams, router]);
+
   // load LLM profiles once for the create-task profile picker.
   React.useEffect(() => {
     api
@@ -3141,7 +3247,7 @@ function CreateTaskSheet({
     try {
       const timeoutSec = Math.max(0, Math.floor(Number(timeoutMin) || 0)) * 60;
       const heartbeatSec = Math.max(10, Math.floor(Number(heartbeatMin) || 10)) * 60; // Floor of 10 minutes, matching the backend.
-      await api.createTask({
+      const task = await api.createTask({
         name: name.trim(),
         categoryId: categoryID,
         description: description.trim(),
@@ -3157,6 +3263,19 @@ function CreateTaskSheet({
           .map((r) => ({ ...r, pattern: r.pattern.trim() }))
           .filter((r) => r.pattern !== ""),
       });
+      // If this task was seeded from an asset, attach that asset as its sole
+      // target. The exact allow-rule above already locks scope; this just hands
+      // the worker its starting point. A failure here doesn't undo the task —
+      // surface it and let the user attach from the task page.
+      if (pendingAssetId != null) {
+        try {
+          await api.attachTaskAssets(task.id, [pendingAssetId], pendingAssetSummary || "Added from Assets");
+        } catch (e) {
+          toast.error(
+            `Task created, but attaching the asset failed: ${(e as Error).message}. Open the task to attach it manually.`,
+          );
+        }
+      }
       toast.success("Task created");
       setName("");
       setCategoryID(undefined);
@@ -3172,6 +3291,9 @@ function CreateTaskSheet({
       setCoverageEnabled(true);
       setInterceptRules([]);
       setUploadCount(0);
+      setPendingAssetId(null);
+      setPendingAssetSummary("");
+      seedHandledRef.current = "";
       draftIdRef.current = "";
       setOpen(false);
       onCreated();
@@ -3183,7 +3305,18 @@ function CreateTaskSheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        // Closing without creating (e.g. Cancel on a seeded sheet) must drop the
+        // pending asset so a later manual task never silently inherits it.
+        if (!v) {
+          setPendingAssetId(null);
+          setPendingAssetSummary("");
+        }
+      }}
+    >
       <SheetTrigger asChild>
         <Button size="sm">
           <PlusIcon /> New task
@@ -3198,7 +3331,9 @@ function CreateTaskSheet({
       >
         <SheetHeader className="border-b p-6">
           <SheetTitle>New task</SheetTitle>
-          <SheetDescription>Describe the target and the goal. Open advanced settings if you need them.</SheetDescription>
+          <SheetDescription>
+            Describe the target and the goal. Open advanced settings if you need them.
+          </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -3237,7 +3372,9 @@ function CreateTaskSheet({
                 onCategoryCreated={onCategoriesChanged}
                 portalContainer={sheetContentRef}
               />
-              <FieldDescription>Optional, one category. Used to filter and archive the list. It does not change how the agent runs.</FieldDescription>
+              <FieldDescription>
+                Optional, one category. Used to filter and archive the list. It does not change how the agent runs.
+              </FieldDescription>
             </Field>
             <div className="grid gap-2">
               <Label htmlFor="description">Description</Label>
@@ -3293,8 +3430,8 @@ function CreateTaskSheet({
                 portalContainer={sheetContentRef}
               />
               <FieldDescription>
-                Up to {MAX_SOURCE_TASKS}{" "}
-                tasks. The new task reads their persisted blackboard, asset scope, and related traffic live, and writes its own blackboard.
+                Up to {MAX_SOURCE_TASKS} tasks. The new task reads their persisted blackboard, asset scope, and related
+                traffic live, and writes its own blackboard.
               </FieldDescription>
             </Field>
             <Field>
@@ -3306,14 +3443,18 @@ function CreateTaskSheet({
                 portalContainer={sheetContentRef}
               />
               <FieldDescription>
-                On create, the company's current assets are added as test assets, and its domains, IPs, CIDRs, ICP filings, and company keywords are given to the agent as scope context. This does not create intents or change the goal.
+                On create, the company's current assets are added as test assets, and its domains, IPs, CIDRs, ICP
+                filings, and company keywords are given to the agent as scope context. This does not create intents or
+                change the goal.
               </FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="task-intercept-rules">Task asset blocks and allows (optional)</FieldLabel>
               <AssetInterceptRulesEditor value={interceptRules} onChange={setInterceptRules} />
               <FieldDescription>
-                Applies only to this task and is not written to the global rules. Order: a block match, including global blocks, forbids testing. If this task has any allow rules and nothing blocked, the asset must match an allow rule. With no allow rules, the whitelist is off.
+                Applies only to this task and is not written to the global rules. Order: a block match, including global
+                blocks, forbids testing. If this task has any allow rules and nothing blocked, the asset must match an
+                allow rule. With no allow rules, the whitelist is off.
               </FieldDescription>
             </Field>
             <Field>
@@ -3325,7 +3466,10 @@ function CreateTaskSheet({
                 inputId="llm-profiles"
                 portalContainer={sheetContentRef}
               />
-              <FieldDescription>Failover follows this order. The first profile is current, and the next is used only when that one is clearly out of quota.</FieldDescription>
+              <FieldDescription>
+                Failover follows this order. The first profile is current, and the next is used only when that one is
+                clearly out of quota.
+              </FieldDescription>
             </Field>
 
             {/* Advanced settings start collapsed: timeout, heartbeat, and the first intent. The common path stays short. */}
@@ -3333,7 +3477,9 @@ function CreateTaskSheet({
               <CollapsibleTrigger className="group flex w-full items-center gap-2 border-t pt-4 text-sm font-medium">
                 <ChevronRightIcon className="text-muted-foreground size-4 transition-transform group-data-[state=open]:rotate-90" />
                 Advanced
-                <span className="text-muted-foreground ml-auto text-xs font-normal">Timeout · heartbeat · first intent</span>
+                <span className="text-muted-foreground ml-auto text-xs font-normal">
+                  Timeout · heartbeat · first intent
+                </span>
               </CollapsibleTrigger>
               <CollapsibleContent className="grid gap-5 pt-5">
                 <div className="grid gap-2">
@@ -3363,7 +3509,9 @@ function CreateTaskSheet({
                     onChange={(e) => setHeartbeatMin(e.target.value)}
                   />
                   <p className="text-muted-foreground text-xs">
-                    If this long passes after the last plan (or after the task starts) with nothing else triggering a plan, one planning round runs. That unsticks a stalled task and checks on running workers. Minimum 10 minutes.
+                    If this long passes after the last plan (or after the task starts) with nothing else triggering a
+                    plan, one planning round runs. That unsticks a stalled task and checks on running workers. Minimum
+                    10 minutes.
                   </p>
                 </div>
                 <div className="grid gap-2">
@@ -3376,7 +3524,9 @@ function CreateTaskSheet({
                     Send the first intent immediately (description and goal)
                   </label>
                   <p className="text-muted-foreground text-xs">
-                    When this is on, create sends the description and goal as one intent so a worker starts without waiting for the first plan. The planner reviews and adds more after that run. Useful when one piece of work usually finishes the task, such as a CTF. Off means plan first, then run.
+                    When this is on, create sends the description and goal as one intent so a worker starts without
+                    waiting for the first plan. The planner reviews and adds more after that run. Useful when one piece
+                    of work usually finishes the task, such as a CTF. Off means plan first, then run.
                   </p>
                 </div>
                 <div className="grid gap-2">
@@ -3389,7 +3539,9 @@ function CreateTaskSheet({
                     Asset coverage
                   </label>
                   <p className="text-muted-foreground text-xs">
-                    On by default: compute and show test coverage, show progress on the situation graph, and accumulate test scope. Off stops coverage math and display, shows assets on the graph without progress, and hides scope tools from the agent. Company asset scope is unaffected.
+                    On by default: compute and show test coverage, show progress on the situation graph, and accumulate
+                    test scope. Off stops coverage math and display, shows assets on the graph without progress, and
+                    hides scope tools from the agent. Company asset scope is unaffected.
                   </p>
                 </div>
               </CollapsibleContent>
