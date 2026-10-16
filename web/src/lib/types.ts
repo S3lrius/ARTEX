@@ -60,6 +60,24 @@ export interface TaskTemplate {
   updated_at: string;
 }
 
+// A recon-proposed deep dive awaiting human review (the Suggested deep-dives inbox).
+// Written by the suggest_task tool; fired by a human into a pre-seeded New Task.
+export interface TaskDraft {
+  id: number;
+  name: string;
+  template_nkey: string; // lowercase task-template key to apply ("" = none)
+  company_id?: number | null;
+  goal: string; // optional override; "" means use the template goal
+  intercept_rules: AssetInterceptRuleInput[]; // exact allow/block rules to lock scope
+  seed_endpoints: string[]; // documented endpoints to seed into the goal
+  rationale: string; // why the agent proposed it
+  source_task_id?: number | null; // the recon task that produced it
+  state: "open" | "consumed" | "dismissed";
+  created_task_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DeleteTaskOptions {
   delete_assets: boolean;
   delete_traffic: boolean;

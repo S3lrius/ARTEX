@@ -633,6 +633,40 @@ DROP TRIGGER IF EXISTS trg_task_templates_upd ON task_templates;
 CREATE TRIGGER trg_task_templates_upd BEFORE UPDATE ON task_templates
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- Recon-proposed deep dives awaiting human review ("Suggested deep dives" inbox).
+-- The suggest_task tool writes one row per proposed task; a human reviews and fires
+-- it (which opens a pre-seeded New Task). A draft never runs until a human creates it.
+CREATE TABLE IF NOT EXISTS task_drafts (
+    id              BIGSERIAL PRIMARY KEY,
+    name            TEXT NOT NULL,
+    -- task_templates.nkey to apply when the draft is fired (nullable = no template).
+    template_nkey   TEXT,
+    -- Proposed company asset scope; cleared if the company is deleted.
+    company_id      BIGINT REFERENCES companies(id) ON DELETE SET NULL,
+    -- Optional goal override; when empty the applied template's goal is used.
+    goal            TEXT NOT NULL DEFAULT '',
+    -- Proposed task-level block/allow rules (an AssetInterceptRuleInput array).
+    intercept_rules JSONB NOT NULL DEFAULT '[]',
+    -- Documented endpoints the agent wants probed; seeded into the goal on fire.
+    seed_endpoints  TEXT[] NOT NULL DEFAULT '{}',
+    -- Why the agent proposed this deep dive (shown in the inbox).
+    rationale       TEXT NOT NULL DEFAULT '',
+    -- The recon task that produced the draft (provenance); kept if that task is gone.
+    source_task_id  BIGINT REFERENCES tasks(id) ON DELETE SET NULL,
+    state           TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','consumed','dismissed')),
+    -- The task created when the draft was fired (set on consume).
+    created_task_id BIGINT REFERENCES tasks(id) ON DELETE SET NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_task_drafts_state ON task_drafts(state, created_at DESC, id DESC);
+-- Dedup guard: one open draft per (name, source task) so an agent replay cannot
+-- pile up duplicate proposals. Consumed/dismissed rows are exempt (partial index).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_task_drafts_open ON task_drafts(name, source_task_id) WHERE state = 'open';
+DROP TRIGGER IF EXISTS trg_task_drafts_upd ON task_drafts;
+CREATE TRIGGER trg_task_drafts_upd BEFORE UPDATE ON task_drafts
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 -- Direct, read-only task context inheritance. Relations are intentionally not
 -- recursive: a task sees only the source tasks explicitly chosen at creation.
 CREATE TABLE IF NOT EXISTS task_relations (

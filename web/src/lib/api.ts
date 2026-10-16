@@ -86,6 +86,7 @@ import type {
   TaskAssetScopeMutation,
   TaskCategory,
   TaskConstraint,
+  TaskDraft,
   TaskGoal,
   TaskLLMResolutions,
   TaskNode,
@@ -242,7 +243,10 @@ export const api = {
     post<{ token: string }>("/auth/init", { password, setup_token: setupToken }),
   // The server rotates its signing key on a password change and returns a fresh token for this session.
   changePassword: (oldPassword: string, newPassword: string) =>
-    post<{ ok: boolean; token?: string }>("/auth/change-password", { old_password: oldPassword, new_password: newPassword }),
+    post<{ ok: boolean; token?: string }>("/auth/change-password", {
+      old_password: oldPassword,
+      new_password: newPassword,
+    }),
 
   // ---- tasks ----
   tasks: () =>
@@ -292,6 +296,14 @@ export const api = {
       category_id: categoryId ?? null,
     }),
   taskTemplates: () => get<{ templates: TaskTemplate[] }>("/task-templates").then((r) => arr(r.templates)),
+  // Suggested deep-dives inbox (recon-proposed task drafts via suggest_task).
+  taskDrafts: (state?: string) =>
+    get<{ drafts: TaskDraft[] }>(`/task-drafts${state ? `?state=${encodeURIComponent(state)}` : ""}`).then((r) =>
+      arr(r.drafts),
+    ),
+  dismissTaskDraft: (id: number) => del<{ dismissed: boolean }>(`/task-drafts/${id}`),
+  consumeTaskDraft: (id: number, createdTaskId: number) =>
+    post<{ consumed: boolean }>(`/task-drafts/${id}/consume`, { created_task_id: createdTaskId }),
   createTaskTemplate: (
     input: Pick<TaskTemplate, "name" | "description" | "goal" | "category_id" | "intercept_rules">,
   ) => post<TaskTemplate>("/task-templates", input),
@@ -826,8 +838,7 @@ export const api = {
   // Channels are a multi-instance resource (several bots of the same type, each with its own filter), so they are their own group
   // instead of flat settings keys.
   notifyMeta: () => get<NotificationMeta>(`/notify/meta`),
-  notifyChannels: () =>
-    get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
+  notifyChannels: () => get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
   notifyCreateChannel: (payload: {
     name: string;
     kind: string;
@@ -1105,8 +1116,17 @@ export const api = {
   // each data line into.
   buildContainerTool: async (
     req: {
-      key: string; description: string; dockerfile: string; args?: string; agents?: string[];
-      schema?: unknown; network?: string; cpus?: string; memory?: string; pids_limit?: number; timeout_ms?: number;
+      key: string;
+      description: string;
+      dockerfile: string;
+      args?: string;
+      agents?: string[];
+      schema?: unknown;
+      network?: string;
+      cpus?: string;
+      memory?: string;
+      pids_limit?: number;
+      timeout_ms?: number;
     },
     on: { log: (line: string) => void; ok: (tag: string) => void; err: (msg: string) => void },
     signal?: AbortSignal,
@@ -1126,7 +1146,12 @@ export const api = {
     }
     if (!r.ok || !r.body) {
       let msg = `build request failed (${r.status})`;
-      try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* keep default */ }
+      try {
+        const j = await r.json();
+        if (j?.error) msg = j.error;
+      } catch {
+        /* keep default */
+      }
       on.err(msg);
       return;
     }

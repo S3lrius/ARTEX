@@ -690,6 +690,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/task-templates", s.pgCreateTaskTemplate)
 	mux.HandleFunc("PATCH /api/task-templates/{id}", s.pgUpdateTaskTemplate)
 	mux.HandleFunc("DELETE /api/task-templates/{id}", s.pgDeleteTaskTemplate)
+	// Recon-proposed deep dives (suggest_task) → the Suggested deep-dives inbox.
+	mux.HandleFunc("GET /api/task-drafts", s.taskDraftsList)
+	mux.HandleFunc("POST /api/task-drafts", s.taskDraftCreate)
+	mux.HandleFunc("DELETE /api/task-drafts/{id}", s.taskDraftDismiss)
+	mux.HandleFunc("POST /api/task-drafts/{id}/consume", s.taskDraftConsume)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("PATCH /api/tasks/{id}", s.updateTaskMetadata)
 	mux.HandleFunc("PATCH /api/tasks/{id}/category", s.updateTaskCategory)

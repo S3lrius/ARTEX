@@ -134,6 +134,7 @@ import type {
   TaskArchive,
   TaskArchiveState,
   TaskCategory,
+  TaskDraft,
   TaskStatus,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -317,6 +318,7 @@ export default function TasksPage() {
 
 function TasksPageInner() {
   const [activeTab, setActiveTab] = React.useState("current");
+  const [draftsReload, setDraftsReload] = React.useState(0); // bumps the Suggested inbox after a task is created
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [categories, setCategories] = React.useState<TaskCategory[]>([]);
   const [categoriesLoaded, setCategoriesLoaded] = React.useState(false);
@@ -797,7 +799,8 @@ function TasksPageInner() {
         <TabsTrigger value="current">Current</TabsTrigger>
         <TabsTrigger value="archived">Archived</TabsTrigger>
       </TabsList>
-      <TabsContent value="current">
+      <TabsContent value="current" className="flex flex-col gap-4">
+        <SuggestedDrafts reloadToken={draftsReload} />
         <Card>
           <CardContent className="flex flex-col gap-4 px-0 pt-6">
             <div className="flex flex-wrap items-center gap-2 px-4 lg:px-6">
@@ -921,7 +924,10 @@ function TasksPageInner() {
               <CreateTaskSheet
                 tasks={tasks}
                 categories={categories}
-                onCreated={refreshCategoriesAndTasks}
+                onCreated={() => {
+                  refreshCategoriesAndTasks();
+                  setDraftsReload((n) => n + 1);
+                }}
                 onCategoriesChanged={refreshCategoriesAndTasks}
               />
             </div>
@@ -3104,6 +3110,83 @@ function CategoryManagementSheet({
   );
 }
 
+// SuggestedDrafts is the "Suggested deep dives" inbox: recon-proposed tasks
+// (suggest_task) awaiting review. Fire deep-links into a pre-seeded New Task;
+// Dismiss drops the proposal. reloadToken bumps after a task is created so a
+// consumed draft leaves the list.
+function SuggestedDrafts({ reloadToken }: { reloadToken: number }) {
+  const router = useRouter();
+  const [drafts, setDrafts] = React.useState<TaskDraft[]>([]);
+  const [busy, setBusy] = React.useState<number | null>(null);
+  const load = React.useCallback(() => {
+    api
+      .taskDrafts("open")
+      .then(setDrafts)
+      .catch(() => {});
+  }, []);
+  React.useEffect(() => {
+    load();
+  }, [load, reloadToken]);
+
+  if (drafts.length === 0) return null;
+
+  const allowHosts = (d: TaskDraft) =>
+    d.intercept_rules
+      .filter((r) => r.action === "allow")
+      .map((r) => r.pattern)
+      .join(", ");
+  const dismiss = async (id: number) => {
+    setBusy(id);
+    try {
+      await api.dismissTaskDraft(id);
+      load();
+    } catch (e) {
+      toast.error(`Couldn't dismiss: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="mx-4 flex flex-col gap-2 lg:mx-6">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        Suggested deep dives
+        <Badge variant="secondary">{drafts.length}</Badge>
+      </div>
+      {drafts.map((d) => (
+        <Card key={d.id}>
+          <CardContent className="flex flex-col gap-2 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate font-medium">{d.name}</div>
+                {d.rationale && <div className="text-muted-foreground text-xs">{d.rationale}</div>}
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <Button size="sm" onClick={() => router.push(`/function/tasks?${SEED_PARAM.draft}=${d.id}`)}>
+                  <PlayIcon data-icon="inline-start" /> Fire
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy === d.id}
+                  aria-label="Dismiss"
+                  onClick={() => dismiss(d.id)}
+                >
+                  <XIcon className="size-4" />
+                </Button>
+              </div>
+            </div>
+            {allowHosts(d) && <div className="text-muted-foreground truncate text-xs">Scope: {allowHosts(d)}</div>}
+            {d.seed_endpoints.length > 0 && (
+              <div className="text-muted-foreground truncate text-xs">Endpoints: {d.seed_endpoints.join(", ")}</div>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 function CreateTaskSheet({
   tasks,
   categories,
@@ -3147,6 +3230,9 @@ function CreateTaskSheet({
   // link; cleared on create and on close so a later manual task never inherits it.
   const [pendingAssetId, setPendingAssetId] = React.useState<number | null>(null);
   const [pendingAssetSummary, setPendingAssetSummary] = React.useState("");
+  // The suggest_task draft this sheet was fired from (null unless opened via a
+  // ?seedDraft link); marked consumed after the task is created.
+  const [pendingDraftId, setPendingDraftId] = React.useState<number | null>(null);
   const seedHandledRef = React.useRef("");
 
   // When navigated to with a seed link, pre-fill the form from the chosen
@@ -3154,6 +3240,61 @@ function CreateTaskSheet({
   // rule that locks the task to that one asset, and open the sheet for review.
   // The URL is stripped afterward so a refresh or back-nav doesn't re-seed.
   React.useEffect(() => {
+    // Fired from a suggest_task draft (?seedDraft=<id>): seed the whole sheet from
+    // the draft — template, goal + endpoints, company scope, and the exact scope
+    // rules — then open it for review. The task is created only when the human hits
+    // Create, which also marks the draft consumed.
+    const draftParam = searchParams.get(SEED_PARAM.draft);
+    if (draftParam) {
+      const dsig = searchParams.toString();
+      if (seedHandledRef.current === dsig) return;
+      seedHandledRef.current = dsig;
+      const draftId = Number(draftParam);
+      const clearUrl = () => router.replace("/function/tasks");
+      if (!Number.isInteger(draftId) || draftId <= 0) {
+        toast.error("Couldn't read that draft link");
+        setOpen(true);
+        clearUrl();
+        return;
+      }
+      void (async () => {
+        try {
+          const [drafts, templates] = await Promise.all([api.taskDrafts("open"), api.taskTemplates()]);
+          const draft = drafts.find((d) => d.id === draftId);
+          if (!draft) {
+            toast.error("That draft is no longer available");
+            setOpen(true);
+            return;
+          }
+          const nkey = draft.template_nkey.trim().toLowerCase();
+          const tpl = nkey
+            ? templates.find((t) => t.name.replace(/\s+/g, " ").trim().toLowerCase() === nkey)
+            : undefined;
+          setName(draft.name);
+          setDescription(tpl?.description ?? draft.rationale ?? "");
+          let seededGoal = (draft.goal || tpl?.goal || "").trim();
+          if (draft.seed_endpoints.length > 0) {
+            seededGoal += `${seededGoal ? "\n\n" : ""}Endpoints to probe:\n${draft.seed_endpoints.map((e) => `- ${e}`).join("\n")}`;
+          }
+          setGoal(seededGoal);
+          setCategoryID(tpl?.category_id ?? undefined);
+          setSelectedTemplateID(tpl?.id ?? null);
+          // Template's own rules first, then the draft's exact scope rules.
+          setInterceptRules([...(tpl?.intercept_rules ?? []), ...draft.intercept_rules]);
+          if (draft.company_id != null) setCompanyIDs([draft.company_id]);
+          setUploadCount(0);
+          setPendingDraftId(draft.id);
+          setOpen(true);
+        } catch (e) {
+          toast.error(`Couldn't load that draft: ${(e as Error).message}`);
+          setOpen(true);
+        } finally {
+          clearUrl();
+        }
+      })();
+      return;
+    }
+
     if (searchParams.get(SEED_PARAM.flag) !== "1") return;
     const sig = searchParams.toString();
     if (seedHandledRef.current === sig) return; // process each seed once (StrictMode double-invoke, re-renders)
@@ -3276,6 +3417,15 @@ function CreateTaskSheet({
           );
         }
       }
+      // If this task was fired from a suggested draft, mark the draft consumed so
+      // it leaves the inbox. A failure here is non-fatal — the task still exists.
+      if (pendingDraftId != null) {
+        try {
+          await api.consumeTaskDraft(pendingDraftId, Number(task.id));
+        } catch {
+          /* leave the draft open; the user can dismiss it manually */
+        }
+      }
       toast.success("Task created");
       setName("");
       setCategoryID(undefined);
@@ -3293,6 +3443,7 @@ function CreateTaskSheet({
       setUploadCount(0);
       setPendingAssetId(null);
       setPendingAssetSummary("");
+      setPendingDraftId(null);
       seedHandledRef.current = "";
       draftIdRef.current = "";
       setOpen(false);

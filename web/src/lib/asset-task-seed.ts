@@ -26,6 +26,7 @@ export const SEED_PARAM = {
   assetId: "seedAssetId", // asset id to attach as the task's sole target
   target: "seedTarget", // the substituted {{TARGET}} value (url/domain/ip)
   kind: "seedKind", // the exact allow-rule kind for `target`
+  draft: "seedDraft", // task-draft id to fire (suggest_task); seeds the whole sheet
 } as const;
 
 // The placeholder a template uses to receive the clicked asset's identity.
