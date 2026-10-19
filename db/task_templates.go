@@ -184,6 +184,21 @@ RETURNING `+taskTemplateCols, in.Name, nkey, in.Description, in.Goal, in.Categor
 	return &t, nil
 }
 
+// SeedTaskTemplate inserts a built-in task template ONCE (first-insert-only by
+// nkey, like SeedTool). An existing template with the same name — possibly edited
+// in the UI — is never overwritten, so startup seeding can't clobber user edits.
+// Returns (created, err): created=false means it already existed.
+func (d *DB) SeedTaskTemplate(in TaskTemplateInput) (bool, error) {
+	_, err := d.CreateTaskTemplate(in)
+	if errors.Is(err, ErrTaskTemplateNameConflict) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // ListTaskTemplates returns the most recently maintained templates first.
 func (d *DB) ListTaskTemplates() ([]*TaskTemplate, error) {
 	rows, err := d.Query(`SELECT ` + taskTemplateCols + ` FROM task_templates ORDER BY updated_at DESC, id DESC`)

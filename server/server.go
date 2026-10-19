@@ -244,6 +244,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		wireTools(m.pg, domainReg) // built-in tool table: filter by agent, override description and schema, and inject defaults
 		seedPrompts(m.pg)          // seed built-in agent default prompt bodies into agent_prompts (only when empty)
 		s.seedOrchestrationTools() // seed P2 cross-task orchestration tools into the tools table (bindable per agent)
+		s.seedTaskTemplates()      // seed the built-in deep-dive task-template library (first-insert-only by name)
 		if err := s.seedFindingRetester(); err != nil {
 			log.Printf("[retester] seed: %v", err)
 		}
