@@ -3305,8 +3305,11 @@ function CreateTaskSheet({
     const target = (searchParams.get(SEED_PARAM.target) ?? "").trim();
     const kind = searchParams.get(SEED_PARAM.kind) ?? "";
     const clearUrl = () => router.replace("/function/tasks");
+    // The template is optional: the Assets flow always sends one, but the Changes
+    // feed's "Fire deep-dive" seeds just the asset and lets the user pick one here.
+    const hasTemplate = Number.isInteger(templateId) && templateId > 0;
 
-    if (!Number.isInteger(templateId) || !Number.isInteger(assetId) || !target || !isAssetSeedKind(kind)) {
+    if (!Number.isInteger(assetId) || assetId <= 0 || !target || !isAssetSeedKind(kind)) {
       toast.error("Couldn't read that asset link");
       setOpen(true);
       clearUrl();
@@ -3315,19 +3318,24 @@ function CreateTaskSheet({
 
     void (async () => {
       try {
-        const templates = await api.taskTemplates();
-        const tpl = templates.find((t) => t.id === templateId);
-        if (!tpl) {
-          toast.error("That template no longer exists");
-          setOpen(true);
-          return;
+        if (hasTemplate) {
+          const templates = await api.taskTemplates();
+          const tpl = templates.find((t) => t.id === templateId);
+          if (!tpl) {
+            toast.error("That template no longer exists");
+            setOpen(true);
+            return;
+          }
+          setDescription(substituteTarget(tpl.description, target));
+          setGoal(substituteTarget(tpl.goal, target));
+          setCategoryID(tpl.category_id ?? undefined);
+          // Template's own rules first, then the exact single-asset allow lock.
+          setInterceptRules([...(tpl.intercept_rules ?? []), buildAllowRule(target, kind)]);
+          setSelectedTemplateID(tpl.id);
+        } else {
+          // No template: just lock scope to this one asset; the user fills the rest.
+          setInterceptRules([buildAllowRule(target, kind)]);
         }
-        setDescription(substituteTarget(tpl.description, target));
-        setGoal(substituteTarget(tpl.goal, target));
-        setCategoryID(tpl.category_id ?? undefined);
-        // Template's own rules first, then the exact single-asset allow lock.
-        setInterceptRules([...(tpl.intercept_rules ?? []), buildAllowRule(target, kind)]);
-        setSelectedTemplateID(tpl.id);
         setUploadCount(0);
         setPendingAssetId(assetId);
         setPendingAssetSummary(`Added from Assets: ${target}`);

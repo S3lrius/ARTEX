@@ -695,6 +695,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/task-drafts", s.taskDraftCreate)
 	mux.HandleFunc("DELETE /api/task-drafts/{id}", s.taskDraftDismiss)
 	mux.HandleFunc("POST /api/task-drafts/{id}/consume", s.taskDraftConsume)
+
+	// Asset change feed ("is anything different?") — see server/asset_changes.go.
+	mux.HandleFunc("GET /api/asset-changes", s.assetChangesList)
+	mux.HandleFunc("GET /api/asset-changes/unseen-count", s.assetChangesUnseenCount)
+	mux.HandleFunc("POST /api/asset-changes/seen-all", s.assetChangesSeenAll)
+	mux.HandleFunc("POST /api/asset-changes/{id}/seen", s.assetChangeSeen)
+
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("PATCH /api/tasks/{id}", s.updateTaskMetadata)
 	mux.HandleFunc("PATCH /api/tasks/{id}/category", s.updateTaskCategory)

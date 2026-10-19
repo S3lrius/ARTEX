@@ -186,6 +186,35 @@ function InterceptPendingBadge() {
   );
 }
 
+// ChangesUnseenBadge polls /api/asset-changes/unseen-count every 10 s and shows a
+// green count badge when the asset store has unseen changes ("something moved").
+function ChangesUnseenBadge() {
+  const [count, setCount] = React.useState(0);
+  React.useEffect(() => {
+    let live = true;
+    async function poll() {
+      try {
+        const n = await api.assetChangesUnseenCount();
+        if (live) setCount(n);
+      } catch {
+        /* ignore */
+      }
+    }
+    poll();
+    const t = setInterval(poll, 10000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, []);
+  if (count === 0) return null;
+  return (
+    <SidebarMenuBadge className="flex h-4.5 min-w-[18px] items-center justify-center rounded-full bg-green-600 px-1 text-[10px] font-semibold leading-none text-white shadow-sm ring-1 ring-green-500/40">
+      {count > 99 ? "99+" : count}
+    </SidebarMenuBadge>
+  );
+}
+
 function NavLinkItem({ item, isActive, showIconFallback }: NavLinkItemProps) {
   return (
     <SidebarMenuItem>
@@ -200,7 +229,13 @@ function NavLinkItem({ item, isActive, showIconFallback }: NavLinkItemProps) {
           <span>{item.title}</span>
         </Link>
       </SidebarMenuButton>
-      {item.id === "approvals" ? <InterceptPendingBadge /> : <NavItemBadge badge={item.badge} />}
+      {item.id === "approvals" ? (
+        <InterceptPendingBadge />
+      ) : item.id === "changes" ? (
+        <ChangesUnseenBadge />
+      ) : (
+        <NavItemBadge badge={item.badge} />
+      )}
     </SidebarMenuItem>
   );
 }

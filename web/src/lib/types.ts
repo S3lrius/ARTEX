@@ -78,6 +78,22 @@ export interface TaskDraft {
   updated_at: string;
 }
 
+// AssetChange is one detected diff in the asset store — the backing row for the
+// Changes feed ("is anything different?"). Written by the DB trigger / gone-sweep.
+export interface AssetChange {
+  id: number;
+  asset_id?: number | null;
+  company_id?: number | null;
+  asset_type: string; // root_domain | ip | subdomain | app | service | endpoint
+  label: string; // human id: url / domain / ip
+  change_type: "new" | "changed" | "reappeared" | "gone";
+  field: string; // changed only: which attribute (status_code, technologies, ...)
+  old_value: string;
+  new_value: string;
+  detected_at: string;
+  seen: boolean;
+}
+
 export interface DeleteTaskOptions {
   delete_assets: boolean;
   delete_traffic: boolean;
