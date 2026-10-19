@@ -31,7 +31,12 @@ const (
 	schedKeyLastTimeout    = "last_timeout_id"    // watermark: max task id fired for task timeout
 	schedKeyLastToolCall   = "last_toolcall_id"   // watermark: max activity id fired for tool call
 	schedKeyLastTaskCreate = "last_taskcreate_id" // watermark: max task id fired for task create
+	schedKeyLastGoneSweep  = "last_gone_sweep"    // unix time of the last asset gone-sweep
 )
+
+// goneSweepEverySec throttles the asset-change "gone" sweep (expensive-ish scan,
+// cheap signal) to about once an hour regardless of the 5s scheduler tick.
+const goneSweepEverySec = 3600
 
 func newScheduler(s *Server) *Scheduler {
 	return &Scheduler{s: s, pg: s.m.pg, tick: 5 * time.Second}
@@ -115,6 +120,10 @@ func (sc *Scheduler) init() {
 }
 
 func (sc *Scheduler) step() {
+	// Asset change detection is independent of P3 triggers — run it even when no
+	// triggers exist (it is self-throttled to ~hourly).
+	sc.sweepGoneAssets()
+
 	triggers, err := sc.pg.ListEnabledTriggers()
 	if err != nil {
 		return
@@ -128,6 +137,30 @@ func (sc *Scheduler) step() {
 	sc.fireTaskTimeouts(triggers)
 	sc.fireToolCalls(triggers)
 	sc.fireTaskCreates(triggers)
+}
+
+// sweepGoneAssets records a 'gone' asset-change for assets that have gone quiet
+// past the threshold. Independent of triggers (it runs even with none enabled)
+// and throttled to ~hourly via a persisted watermark. The stale/gone window is
+// read from settings (change_gone_days, default 7) so it is tunable without a
+// redeploy. Detection is pure SQL — no LLM tokens.
+func (sc *Scheduler) sweepGoneAssets() {
+	last, _ := strconv.ParseInt(sc.mustState(schedKeyLastGoneSweep), 10, 64)
+	now := time.Now().Unix()
+	if now-last < goneSweepEverySec {
+		return
+	}
+	// Advance the watermark first so an error doesn't retry every 5s tick.
+	_ = sc.pg.SetSchedState(schedKeyLastGoneSweep, strconv.FormatInt(now, 10))
+	days := 7
+	if v, ok, _ := sc.pg.GetSetting("change_gone_days"); ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			days = n
+		}
+	}
+	if _, err := sc.pg.SweepGoneAssets(days); err != nil {
+		log.Printf("[scheduler] asset gone-sweep failed: %v", err)
+	}
 }
 
 // fireIntervals fires triggers whose interval has elapsed since last_fire.

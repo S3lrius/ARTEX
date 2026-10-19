@@ -14,6 +14,7 @@ import type {
   AgentTrigger,
   ArchiveBatchItem,
   Asset,
+  AssetChange,
   AssetInterceptRule,
   AssetInterceptRuleInput,
   Audit,
@@ -304,6 +305,20 @@ export const api = {
   dismissTaskDraft: (id: number) => del<{ dismissed: boolean }>(`/task-drafts/${id}`),
   consumeTaskDraft: (id: number, createdTaskId: number) =>
     post<{ consumed: boolean }>(`/task-drafts/${id}/consume`, { created_task_id: createdTaskId }),
+  // Asset change feed ("is anything different?").
+  assetChanges: (params?: { companyId?: number; type?: string; unseen?: boolean; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.companyId) q.set("company_id", String(params.companyId));
+    if (params?.type) q.set("type", params.type);
+    if (params?.unseen) q.set("unseen", "1");
+    if (params?.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return get<{ changes: AssetChange[] }>(`/asset-changes${qs ? `?${qs}` : ""}`).then((r) => arr(r.changes));
+  },
+  assetChangesUnseenCount: () => get<{ count: number }>("/asset-changes/unseen-count").then((r) => r.count),
+  markAssetChangeSeen: (id: number) => post<{ seen: boolean }>(`/asset-changes/${id}/seen`),
+  markAllAssetChangesSeen: (companyId?: number) =>
+    post<{ cleared: number }>(`/asset-changes/seen-all${companyId ? `?company_id=${companyId}` : ""}`),
   createTaskTemplate: (
     input: Pick<TaskTemplate, "name" | "description" | "goal" | "category_id" | "intercept_rules">,
   ) => post<TaskTemplate>("/task-templates", input),

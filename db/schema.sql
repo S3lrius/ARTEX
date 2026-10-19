@@ -113,6 +113,108 @@ DROP TRIGGER IF EXISTS trg_av2_upd ON assets;
 CREATE TRIGGER trg_av2_upd BEFORE UPDATE ON assets
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ---------- asset change feed ("is anything different?") ----------
+-- Append-only history of diffs to the asset store. The assets table stays the
+-- source of truth for CURRENT state; this records what changed, when. Populated
+-- by the record_asset_change trigger (new / changed / reappeared) and by the
+-- scheduler's gone-sweep (gone). Detection is pure SQL — zero LLM tokens.
+-- Design: docs/plans/2026-10-18-asset-change-feed-design.md
+CREATE TABLE IF NOT EXISTS asset_changes (
+    id          BIGSERIAL PRIMARY KEY,
+    asset_id    BIGINT REFERENCES assets(id) ON DELETE CASCADE,
+    company_id  BIGINT REFERENCES companies(id) ON DELETE SET NULL,
+    asset_type  TEXT NOT NULL,          -- snapshot of assets.type at detection
+    label       TEXT NOT NULL,          -- human id: url / domain / ip
+    change_type TEXT NOT NULL CHECK (change_type IN ('new','changed','reappeared','gone')),
+    field       TEXT,                   -- which attribute changed (NULL for new/reappeared/gone)
+    old_value   TEXT,                   -- prior value (NULL for new)
+    new_value   TEXT,                   -- current value (NULL for gone)
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    seen        BOOLEAN NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS idx_asset_changes_feed    ON asset_changes(detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asset_changes_company ON asset_changes(company_id, detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asset_changes_unseen  ON asset_changes(seen) WHERE seen = false;
+
+-- asset_label: the best human identifier for an asset row (url > domain > ip > name).
+CREATE OR REPLACE FUNCTION asset_label(a assets) RETURNS text AS $$
+    SELECT COALESCE(NULLIF(a.url,''), NULLIF(a.domain,''), NULLIF(a.root_domain,''),
+                    NULLIF(a.ip,''), NULLIF(a.app_name,''), NULLIF(a.service_name,''), a.type);
+$$ LANGUAGE sql IMMUTABLE;
+
+-- norm_tech / norm_ports: stable, order-independent text renderings so an
+-- array/jsonb re-order from a re-scan is not mistaken for a real change.
+CREATE OR REPLACE FUNCTION norm_tech(arr text[]) RETURNS text AS $$
+    SELECT array_to_string(ARRAY(SELECT DISTINCT lower(x) FROM unnest(arr) x WHERE x <> '' ORDER BY 1), ', ');
+$$ LANGUAGE sql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION norm_ports(arr jsonb[]) RETURNS text AS $$
+    SELECT array_to_string(ARRAY(
+        SELECT DISTINCT (e->>'port') || COALESCE('/' || NULLIF(e->>'service',''), '')
+        FROM unnest(arr) e ORDER BY 1), ', ');
+$$ LANGUAGE sql IMMUTABLE;
+
+-- record_asset_change: one AFTER INSERT OR UPDATE trigger covering all 6 asset
+-- upsert paths. On INSERT -> 'new'. On a real re-scan UPDATE (last_seen bumped)
+-- -> 'reappeared' if it had gone quiet, plus one 'changed' row per watched field
+-- that actually differs. Non-scan updates (e.g. task_ids edits) bump nothing
+-- watched, so they produce zero rows.
+CREATE OR REPLACE FUNCTION record_asset_change() RETURNS trigger AS $$
+DECLARE
+    stale_days int := COALESCE((SELECT value FROM settings WHERE key = 'change_stale_days'), '7')::int;
+    lbl text;
+BEGIN
+    lbl := asset_label(NEW);
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO asset_changes(asset_id, company_id, asset_type, label, change_type)
+        VALUES (NEW.id, NEW.company_id, NEW.type, lbl, 'new');
+        RETURN NEW;
+    END IF;
+
+    -- Only treat this UPDATE as a re-scan when last_seen actually advanced; this
+    -- gates reappeared/changed detection off bookkeeping updates that leave
+    -- last_seen untouched.
+    IF NEW.last_seen <= OLD.last_seen THEN
+        RETURN NEW;
+    END IF;
+
+    IF OLD.last_seen < now() - make_interval(days => stale_days) THEN
+        INSERT INTO asset_changes(asset_id, company_id, asset_type, label, change_type)
+        VALUES (NEW.id, NEW.company_id, NEW.type, lbl, 'reappeared');
+    END IF;
+
+    IF NEW.status_code IS DISTINCT FROM OLD.status_code THEN
+        INSERT INTO asset_changes(asset_id, company_id, asset_type, label, change_type, field, old_value, new_value)
+        VALUES (NEW.id, NEW.company_id, NEW.type, lbl, 'changed', 'status_code', OLD.status_code::text, NEW.status_code::text);
+    END IF;
+    IF NEW.content_length IS DISTINCT FROM OLD.content_length THEN
+        INSERT INTO asset_changes(asset_id, company_id, asset_type, label, change_type, field, old_value, new_value)
+        VALUES (NEW.id, NEW.company_id, NEW.type, lbl, 'changed', 'content_length', OLD.content_length::text, NEW.content_length::text);
+    END IF;
+    IF NEW.page_title IS DISTINCT FROM OLD.page_title THEN
+        INSERT INTO asset_changes(asset_id, company_id, asset_type, label, change_type, field, old_value, new_value)
+        VALUES (NEW.id, NEW.company_id, NEW.type, lbl, 'changed', 'page_title', OLD.page_title, NEW.page_title);
+    END IF;
+    IF NEW.favicon_mmh3 IS DISTINCT FROM OLD.favicon_mmh3 THEN
+        INSERT INTO asset_changes(asset_id, company_id, asset_type, label, change_type, field, old_value, new_value)
+        VALUES (NEW.id, NEW.company_id, NEW.type, lbl, 'changed', 'favicon_mmh3', OLD.favicon_mmh3, NEW.favicon_mmh3);
+    END IF;
+    IF norm_tech(NEW.technologies) IS DISTINCT FROM norm_tech(OLD.technologies) THEN
+        INSERT INTO asset_changes(asset_id, company_id, asset_type, label, change_type, field, old_value, new_value)
+        VALUES (NEW.id, NEW.company_id, NEW.type, lbl, 'changed', 'technologies', norm_tech(OLD.technologies), norm_tech(NEW.technologies));
+    END IF;
+    IF norm_ports(NEW.open_ports) IS DISTINCT FROM norm_ports(OLD.open_ports) THEN
+        INSERT INTO asset_changes(asset_id, company_id, asset_type, label, change_type, field, old_value, new_value)
+        VALUES (NEW.id, NEW.company_id, NEW.type, lbl, 'changed', 'open_ports', norm_ports(OLD.open_ports), norm_ports(NEW.open_ports));
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_asset_changes ON assets;
+CREATE TRIGGER trg_asset_changes AFTER INSERT OR UPDATE ON assets
+    FOR EACH ROW EXECUTE FUNCTION record_asset_change();
+
 CREATE TABLE IF NOT EXISTS company_scope (
     id         BIGSERIAL PRIMARY KEY,
     company_id BIGINT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
