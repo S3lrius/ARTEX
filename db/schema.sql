@@ -38,6 +38,22 @@ DROP TRIGGER IF EXISTS trg_companies_upd ON companies;
 CREATE TRIGGER trg_companies_upd BEFORE UPDATE ON companies
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- Authenticated test identities for credentialed testing. `headers` holds the real
+-- session (Cookie/Authorization) as a JSON map and is a SECRET: the db layer never
+-- returns it to the UI, and at runtime it lives only in the recording proxy, which
+-- injects it into in-scope requests and redacts it from stored traffic. `hosts` is
+-- the exact host allowlist the proxy injects for. Stored plaintext at rest, matching
+-- the project's LLM-key convention (encryption is a later hardening step).
+CREATE TABLE IF NOT EXISTS identities (
+    id         BIGSERIAL PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    company_id BIGINT REFERENCES companies(id) ON DELETE SET NULL,
+    hosts      JSONB NOT NULL DEFAULT '[]',
+    headers    TEXT  NOT NULL DEFAULT '',
+    canaries   JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS assets (
     id              BIGSERIAL PRIMARY KEY,
     type            TEXT NOT NULL CHECK (type IN (

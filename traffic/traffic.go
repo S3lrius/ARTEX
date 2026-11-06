@@ -170,6 +170,16 @@ type Traffic struct {
 	// transparent-passthrough paths honor it (go-mitmproxy's getUpstreamConn),
 	// so no host escapes it. Hot-swappable at runtime via SetUpstreamProxy.
 	upstream atomic.Pointer[url.URL]
+	// identities holds the operator-supplied authenticated sessions. The Request
+	// hook injects a matching identity's headers into in-scope requests so the agent
+	// tests as a logged-in user WITHOUT ever holding the credential. Hot-swappable
+	// via SetIdentities (same pattern as upstream).
+	identities atomic.Pointer[[]Identity]
+	// injected maps a mitmproxy flow id to the header keys injected into it, so
+	// record() can redact the real credential before the exchange is stored — the
+	// agent can read captured traffic via traffic_get, so the raw cookie must never
+	// reach the store.
+	injected sync.Map // mproxy flow id (uuid.UUID) -> []string (header keys)
 }
 
 // Open initializes the traffic tree, blob store and SQLite index under dir.
@@ -400,7 +410,90 @@ func (s *sink) Response(f *mproxy.Flow) {
 // the failure looks proxy/protocol-caused (h2 quirks, HEAD-with-body, protocol
 // errors) — not a plain target-unreachable error — we flag the host for
 // transparent passthrough so future requests to it succeed instead of dying.
-func (s *sink) RequestError(f *mproxy.Flow, err error) { s.t.maybePassthrough(f, err) }
+// Request runs before a request leaves to the target: inject the matching
+// authenticated identity's headers so the request goes out as that session. The
+// credential stays proxy-side; the agent never sees it.
+func (s *sink) Request(f *mproxy.Flow) { s.t.injectIdentity(f) }
+
+func (s *sink) RequestError(f *mproxy.Flow, err error) {
+	s.t.injected.Delete(f.Id) // no record() will run for this flow; drop the redaction note
+	s.t.maybePassthrough(f, err)
+}
+
+// Identity is an operator-supplied authenticated session. Its real credential
+// headers live ONLY here in the proxy, never in the agent/LLM: a request is
+// injected with the headers when its host exactly matches the identity's allowlist
+// (and, when the caller sets the X-Artex-Identity marker, when that marker names
+// it). Keeping the credential proxy-side defeats prompt-injection exfil and
+// external-API leakage regardless of fork trust.
+type Identity struct {
+	Name    string            `json:"name"`
+	Hosts   []string          `json:"hosts"` // exact host allowlist; inject only on an exact match
+	Headers map[string]string `json:"-"`     // Cookie / Authorization / …; never serialized out
+}
+
+// identityMarker lets an agent pick an identity by name (e.g. A-vs-B differential
+// testing). It is always stripped before the request leaves, and is never
+// required: with no marker, a request is injected with the single identity whose
+// allowlist matches its host (ambiguous matches inject nothing).
+const identityMarker = "X-Artex-Identity"
+
+// SetIdentities replaces the injected-identity set (hot-swap, like SetUpstreamProxy).
+func (t *Traffic) SetIdentities(ids []Identity) { t.identities.Store(&ids) }
+
+// injectIdentity runs in the proxy Request hook. On an exact host match it injects
+// the identity's headers so the request goes out authenticated, strips the marker,
+// and records the header keys it set so record() can redact them. The credential
+// has already left to the target by the time record() runs.
+func (t *Traffic) injectIdentity(f *mproxy.Flow) {
+	if f == nil || f.Request == nil || f.Request.URL == nil {
+		return
+	}
+	marker := f.Request.Header.Get(identityMarker)
+	f.Request.Header.Del(identityMarker) // internal only; never forward it
+	p := t.identities.Load()
+	if p == nil {
+		return
+	}
+	host := f.Request.URL.Hostname()
+	var match *Identity
+	for i := range *p {
+		id := &(*p)[i]
+		if marker != "" && !strings.EqualFold(id.Name, marker) {
+			continue
+		}
+		if !hostAllowed(host, id.Hosts) {
+			continue
+		}
+		if match != nil && marker == "" {
+			return // >1 identity matches this host and no marker chose one → inject nothing
+		}
+		match = id
+	}
+	if match == nil {
+		return
+	}
+	keys := make([]string, 0, len(match.Headers))
+	for k, v := range match.Headers {
+		f.Request.Header.Set(k, v)
+		keys = append(keys, k)
+	}
+	if len(keys) > 0 {
+		t.injected.Store(f.Id, keys)
+	}
+}
+
+// hostAllowed reports whether host exactly equals an allowlist entry (case-
+// insensitive). No suffix/wildcard matching: a credential is injected only for the
+// exact hosts the operator named, so a look-alike host never receives it.
+func hostAllowed(host string, allow []string) bool {
+	for _, a := range allow {
+		if strings.EqualFold(host, a) {
+			return true
+		}
+	}
+	return false
+}
 
 // maybePassthrough marks a host to be tunneled transparently on the next
 // connection, but only for errors the proxy itself caused — a target that is
@@ -447,6 +540,14 @@ func (t *Traffic) record(f *mproxy.Flow) {
 
 	ct := f.Response.Header.Get("Content-Type")
 	url := f.Request.URL.String()
+	// Redact any identity credential this request carried: it already reached the
+	// target in the Request hook, but it must never be stored where the agent can
+	// read it back via traffic_get.
+	if v, ok := t.injected.LoadAndDelete(f.Id); ok {
+		for _, k := range v.([]string) {
+			f.Request.Header.Set(k, "<redacted: injected identity>")
+		}
+	}
 	reqHead := fmt.Sprintf("%s %s %s\n%s", method, f.Request.URL.RequestURI(), f.Request.Proto, requestHeaderLines(f.Request))
 	respHead := fmt.Sprintf("HTTP %d\n%s", f.Response.StatusCode, headerLines(f.Response.Header))
 	// Bodies are spilled before the transaction opens: blob writes are filesystem

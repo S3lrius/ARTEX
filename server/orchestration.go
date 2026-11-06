@@ -75,6 +75,7 @@ func (s *Server) orchestrationTools() []actool.CoreTool {
 		s.toolGetFindingTraffic(),
 		s.toolBindFindingTraffic(),
 		s.toolSuggestTask(),
+		s.toolAccessDiff(),
 	}
 }
 
@@ -477,6 +478,10 @@ func (s *Server) seedOrchestrationTools() {
 		if t.Name() == "suggest_task" {
 			// Recon proposes follow-ups, so the worker and planner get it by default.
 			bindings = json.RawMessage(`["worker","planner"]`)
+		}
+		if t.Name() == "access_diff" {
+			// Credentialed IDOR/BOLA testing: the agents that hunt the authenticated surface.
+			bindings = json.RawMessage(`["worker","deepdive"]`)
 		}
 		_ = s.m.PG().SeedTool(t.Name(), t.Description(), schema, bindings)
 	}

@@ -250,6 +250,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		}
 		go s.evidenceStore().RunGC(s.ctx)
 		s.seedPythonInterpreter()     // custom script tools: detect the python interpreter at startup and store it (only when empty)
+		s.reloadIdentities()          // push operator-supplied authenticated identities into the recording proxy
 		go newScheduler(s).Run(s.ctx) // P3 trigger scheduling (schedule, finding, and goal events), custom agents only
 		// Finding chat-notification delivery engine. It runs beside Scheduler but independently. Notifications need a 3-second cadence, which is a different rhythm from triggers, and a stuck notification must not block agent triggers.
 		go newNotifier(s).Run(s.ctx)
@@ -773,6 +774,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/companies/{id}", s.deleteCompany)
 	mux.HandleFunc("POST /api/companies/{id}/scope", s.addCompanyScope)
 	mux.HandleFunc("POST /api/companies/reattribute", s.reattribute)
+	mux.HandleFunc("GET /api/identities", s.listIdentities)
+	mux.HandleFunc("POST /api/identities", s.createIdentity)
+	mux.HandleFunc("DELETE /api/identities/{id}", s.deleteIdentity)
 
 	mux.HandleFunc("GET /api/exploration/frontier", s.frontier)
 	mux.HandleFunc("GET /api/exploration/findings", s.findings)
