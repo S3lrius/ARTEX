@@ -247,6 +247,17 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 			byKey[t.Key] = t
 		}
 		runInfo := agent.RunInfoFrom(ctx)
+		// A run attached to a task's exploration graph (a trigger that fired for a
+		// task) binds the injected domain tools to that task's store, so graph-write
+		// tools (record_fact, insert_assets anchoring, …) work and the agent's output
+		// lands in the task graph. A plain chat run (ExplorationID 0) keeps the
+		// server-level nil-store registry and its graceful "needs a task context" refusal.
+		reg := domainReg
+		if runInfo.ExplorationID != 0 {
+			if tr := buildTaskDomainReg(pg, runInfo, agentKey); tr != nil {
+				reg = tr
+			}
+		}
 		resolve := func(t actool.CoreTool, row *db.Tool) actool.CoreTool {
 			var schema map[string]any
 			if len(row.Schema) > 0 {
@@ -271,7 +282,7 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 		// and therefore never includes ToolSet-backed domain tools. Per-task instances
 		// in the base always win: inList is built from the original incoming list so a
 		// worker's own upsert_asset is never shadowed by the server-level registry copy.
-		if len(domainReg) > 0 {
+		if len(reg) > 0 {
 			inList := make(map[string]bool, len(tools))
 			for _, t := range tools {
 				inList[t.Name()] = true
@@ -280,7 +291,7 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 				if row.Kind == "shell" || !row.Enabled || !contains(row.Agents, agentKey) || inList[row.Key] {
 					continue
 				}
-				inst, ok := domainReg[row.Key]
+				inst, ok := reg[row.Key]
 				if !ok {
 					continue // not a domain tool; custom/host tools are injected via hostTools()
 				}
@@ -351,6 +362,32 @@ func buildDomainReg(as *db.AssetStore) map[string]actool.CoreTool {
 	serverTS.SetAssetStore(as, as.Companies())
 	reg := make(map[string]actool.CoreTool)
 	for _, t := range serverTS.AllDomainTools() {
+		reg[t.Name()] = t
+	}
+	return reg
+}
+
+// buildTaskDomainReg builds a TASK-BOUND domain registry for a run attached to a
+// task's exploration graph (RunInfo.ExplorationID != 0) — e.g. a trigger that fired
+// for a task. Unlike buildDomainReg (nil store), these tool instances carry the
+// task's ExplorationStore, task id, coverage flag, and the run's owner node, so the
+// exploration-graph write tools work and the agent's facts/assets anchor into the
+// task graph. Built per run (ToolResolve is per turn); nil on an unresolvable store
+// so the caller falls back to the server-level registry.
+func buildTaskDomainReg(pg *db.DB, ri agent.RunInfo, worker string) map[string]actool.CoreTool {
+	as := pg.Assets()
+	if as == nil || ri.ExplorationID == 0 {
+		return nil
+	}
+	tsx := agent.NewToolSet(pg.Exploration(ri.ExplorationID), worker)
+	tsx.SetAssetStore(as, as.Companies())
+	tsx.SetTaskID(ri.TaskID)
+	tsx.SetCoverageEnabled(as.CoverageEnabled(ri.TaskID))
+	if ri.IntentID > 0 {
+		tsx.SetOwnerNode(ri.IntentID) // facts/assets this run writes anchor to its trigger-intent node
+	}
+	reg := make(map[string]actool.CoreTool)
+	for _, t := range tsx.AllDomainTools() {
 		reg[t.Name()] = t
 	}
 	return reg

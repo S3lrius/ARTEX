@@ -16,6 +16,7 @@ import (
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/artex/sidequestion"
 )
 
@@ -476,9 +477,45 @@ func (s *Server) runConversation(c *db.Conversation, msg, busyKey string, userMe
 // run ends (clearing busyKey). runConversation wraps it in a goroutine for the
 // fire-and-forget chat path; the P3 trigger queue calls it directly so it can wait
 // for completion before starting the next queued fire for the same agent.
-func (s *Server) runConversationSync(c *db.Conversation, msg, busyKey string) {
+// runConversationSync runs one conversation turn synchronously. It is the trigger
+// path (runTriggeredRun). taskID is the task a trigger fired for (0 for a task-less
+// trigger). When set, the run is ATTACHED to that task's exploration graph: its
+// domain tools (record_fact, insert_assets, …) get the task's store so they work,
+// its output lands in the graph, and its LLM usage is tagged to the task.
+func (s *Server) runConversationSync(c *db.Conversation, msg, busyKey string, taskID int64) {
 	ctx, cancel := s.conversationRunContext(c.ID, busyKey)
+	if taskID != 0 {
+		if ri, ok := s.taskRunInfo(taskID, c.AgentKey); ok {
+			ctx = agent.WithRunInfo(ctx, ri) // ToolResolve reads this to build task-bound domain tools
+			ctx = llmrec.WithTaskID(ctx, strconv.FormatInt(taskID, 10))
+		}
+	}
 	s.runConversationTurn(ctx, cancel, c, msg, busyKey)
+}
+
+// taskRunInfo prepares per-run attribution for a trigger that fired for a task:
+// it resolves the task's exploration graph and creates a synthetic "trigger
+// intent" node that the run's facts/assets anchor to. The node is state "done"
+// and origin "trigger" so the planner frontier never claims it as work — it only
+// groups the triggered agent's output and makes the run a first-class graph node
+// the planner/worker can read. ok=false (task/exploration unresolvable) lets the
+// run fall back to the task-less, nil-store behavior.
+func (s *Server) taskRunInfo(taskID int64, agentKey string) (agent.RunInfo, bool) {
+	pt, err := s.m.pg.GetTask(taskID)
+	if err != nil || pt == nil || pt.ExplorationID == 0 {
+		return agent.RunInfo{}, false
+	}
+	ri := agent.RunInfo{TaskID: taskID, ExplorationID: pt.ExplorationID}
+	intentID, err := s.m.pg.Exploration(pt.ExplorationID).AddNode(
+		db.KindIntent,
+		map[string]any{"summary": "trigger run: " + agentKey},
+		0, "done", "trigger", nil)
+	if err != nil {
+		log.Printf("[trigger] create trigger-intent for task %d failed: %v", taskID, err)
+	} else {
+		ri.IntentID = intentID // facts/assets anchor here (ownerNode)
+	}
+	return ri, true
 }
 
 // Register cancellation before returning 202, so an immediate stop/delete cannot
@@ -815,7 +852,7 @@ func (s *Server) runTriggeredRun(item triggeredRun) {
 	s.chatMu.Lock()
 	s.chatBusy[busyKey] = true
 	s.chatMu.Unlock()
-	s.runConversationSync(c, msg, busyKey)
+	s.runConversationSync(c, msg, busyKey, item.taskID)
 }
 
 // firstLine returns a single-line, length-capped preview (shared with summaries).

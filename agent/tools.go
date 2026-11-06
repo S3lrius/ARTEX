@@ -1338,6 +1338,9 @@ func (t *ToolSet) recordOneFact(it factItem, defaultIntent int64) (int64, error)
 	if intent <= 0 {
 		intent = defaultIntent
 	}
+	if intent <= 0 {
+		intent = t.ownerNode // trigger-run agents don't know an intent id; anchor to the run's own node
+	}
 	if intent > 0 {
 		node, err := t.ts.GetNode(intent)
 		if err != nil || node == nil || node.Kind != db.KindIntent {
